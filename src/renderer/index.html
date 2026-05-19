@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Interview Assistant</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: transparent; color: #e2e8f0; user-select: none; height: 100vh; overflow: hidden; }
+    #app { background: rgba(15,15,25,0.85); border: 1px solid rgba(99,179,237,0.15); border-radius: 14px; height: 100vh; display: flex; flex-direction: column; backdrop-filter: blur(8px); overflow: hidden; }
+    #titlebar { -webkit-app-region: drag; background: transparent; padding: 8px 10px; display: flex; align-items: center; justify-content: flex-end; flex-shrink: 0; }
+    .win-btns { -webkit-app-region: no-drag; display: flex; gap: 6px; }
+    .win-btn { width: 18px; height: 18px; border-radius: 50%; border: none; cursor: pointer; font-size: 9px; display: flex; align-items: center; justify-content: center; transition: opacity 0.2s; }
+    .win-btn:hover { opacity: 0.8; }
+    .btn-close { background: #fc5c65; color: #7a0000; }
+    .btn-min { background: #fed330; color: #7a5500; }
+    .btn-set { background: #45aaf2; color: #003060; }
+    #mode-toggle-bar { padding: 6px 14px; display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.25); border-bottom: 1px solid rgba(99,179,237,0.1); flex-shrink: 0; }
+    .mode-btn { padding: 4px 10px; border-radius: 14px; border: 1px solid rgba(99,179,237,0.2); background: rgba(99,179,237,0.08); color: #a0aec0; font-size: 10px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+    .mode-btn.active { background: rgba(72,187,120,0.25); border-color: rgba(72,187,120,0.5); color: #68d391; }
+    .mode-btn:hover { opacity: 0.85; }
+    #statusbar { padding: 7px 14px; display: flex; align-items: center; gap: 10px; background: rgba(0,0,0,0.2); flex-shrink: 0; flex-wrap: wrap; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #4a5568; transition: background 0.3s; }
+    .status-dot.listening { background: #48bb78; animation: pulse 1.5s infinite; }
+    .status-dot.thinking { background: #ed8936; animation: pulse 0.8s infinite; }
+    .status-dot.passive { background: #9f7aea; animation: pulse 2s infinite; }
+    .status-dot.screen-active { background: #4fd1c5; animation: pulse 2s infinite; }
+    #status-text { font-size: 11px; color: #a0aec0; }
+    #mic-btn { margin-left: auto; background: rgba(99,179,237,0.15); border: 1px solid rgba(99,179,237,0.3); color: #63b3ed; padding: 4px 12px; border-radius: 20px; cursor: pointer; font-size: 11px; font-weight: 600; transition: all 0.2s; }
+    #mic-btn:hover { background: rgba(99,179,237,0.25); }
+    #mic-btn.active { background: rgba(252,92,101,0.2); border-color: rgba(252,92,101,0.4); color: #fc5c65; }
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+    .mode-indicator { display: none; padding: 8px 14px; flex-shrink: 0; }
+    .mode-indicator.visible { display: block; }
+    .mode-indicator .label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px; }
+    .mode-indicator .info { font-size: 11px; line-height: 1.5; }
+    #passive-indicator { background: rgba(159,122,234,0.08); border-bottom: 1px solid rgba(159,122,234,0.15); }
+    #passive-indicator .label { color: #9f7aea; }
+    #passive-indicator .info { color: #b794f4; }
+    #screen-indicator { background: rgba(79,209,197,0.08); border-bottom: 1px solid rgba(79,209,197,0.15); }
+    #screen-indicator .label { color: #4fd1c5; }
+    #screen-indicator .info { color: #81e6d9; }
+    #transcript-box { padding: 0; background: rgba(0,0,0,0.25); border-bottom: 1px solid rgba(99,179,237,0.1); flex-shrink: 0; max-height: 0; overflow: hidden; transition: max-height 0.3s ease, padding 0.3s ease; }
+    #transcript-box.visible { max-height: 120px; padding: 8px 14px; overflow-y: auto; }
+    #transcript-box .label { font-size: 9px; color: #4a5568; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px; }
+    #transcript-text { font-size: 12px; color: #a0aec0; line-height: 1.5; font-style: italic; }
+    #answer-wrap { flex: 1; overflow-y: auto; padding: 12px 14px; }
+    #answer-wrap .label { font-size: 9px; color: #4a5568; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; }
+    #answer-text { font-size: 13px; color: #e2e8f0; line-height: 1.7; white-space: pre-wrap; }
+    #answer-text .thinking-dots { color: #ed8936; }
+    #answer-text code { background: rgba(99,179,237,0.12); color: #90cdf4; padding: 1px 5px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 12px; }
+    #answer-text pre { background: rgba(0,0,0,0.4); border: 1px solid rgba(99,179,237,0.15); border-radius: 8px; padding: 10px; margin: 8px 0; overflow-x: auto; font-family: 'Courier New', monospace; font-size: 11px; color: #90cdf4; white-space: pre; }
+    #input-area { padding: 10px 14px; border-top: 1px solid rgba(99,179,237,0.1); flex-shrink: 0; display: flex; gap: 8px; }
+    #manual-input { flex: 1; background: rgba(255,255,255,0.06); border: 1px solid rgba(99,179,237,0.2); border-radius: 8px; padding: 7px 10px; color: #e2e8f0; font-size: 12px; outline: none; resize: none; height: 34px; transition: border 0.2s; }
+    #manual-input:focus { border-color: rgba(99,179,237,0.5); height: 60px; }
+    #manual-input::placeholder { color: #4a5568; }
+    #ask-btn { background: linear-gradient(135deg, #4299e1, #3182ce); border: none; color: white; padding: 0 14px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; transition: opacity 0.2s; align-self: flex-end; height: 34px; }
+    #ask-btn:hover { opacity: 0.85; }
+    #api-warning { margin: 10px 14px; background: rgba(237,137,54,0.15); border: 1px solid rgba(237,137,54,0.3); border-radius: 8px; padding: 10px 12px; font-size: 11px; color: #fbd38d; display: none; }
+    #api-warning a { color: #f6ad55; cursor: pointer; text-decoration: underline; }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(99,179,237,0.2); border-radius: 2px; }
+    #chat-history-btn { background: rgba(99,179,237,0.1); border: 1px solid rgba(99,179,237,0.2); color: #63b3ed; padding: 3px 10px; border-radius: 12px; cursor: pointer; font-size: 10px; font-weight: 600; }
+    #chat-history-btn.active { background: rgba(99,179,237,0.3); border-color: rgba(99,179,237,0.5); }
+    #clear-history-btn { background: transparent; border: none; color: #fc5c65; padding: 3px 8px; border-radius: 8px; cursor: pointer; font-size: 10px; font-weight: 600; }
+    #chat-history-panel { display: none; flex-direction: column; background: rgba(0,0,0,0.3); border-bottom: 1px solid rgba(99,179,237,0.1); max-height: 180px; overflow-y: auto; flex-shrink: 0; }
+    #chat-history-panel.visible { display: flex; }
+    .chat-item { padding: 8px 14px; border-bottom: 1px solid rgba(99,179,237,0.08); }
+    .chat-q { font-size: 11px; color: #63b3ed; font-weight: 600; margin-bottom: 3px; }
+    .chat-a { font-size: 11px; color: #a0aec0; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .chat-empty { padding: 20px; text-align: center; color: #4a5568; font-size: 11px; }
+    .hide-in-passive { transition: opacity 0.3s; }
+    .passive-active .hide-in-passive, .screen-active .hide-in-passive { opacity: 0.3; pointer-events: none; max-height: 0; overflow: hidden; padding: 0; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div id="titlebar"><div class="win-btns">
+    <button class="win-btn btn-set" onclick="openSettings()" title="Settings">&#9881;</button>
+    <button class="win-btn btn-min" onclick="minimize()" title="Minimize">&minus;</button>
+    <button class="win-btn btn-close" onclick="closeApp()" title="Close">&#10005;</button>
+  </div></div>
+  <div id="mode-toggle-bar">
+    <button class="mode-btn active" id="manual-mode-btn" onclick="switchMode('manual')">&#127908; Manual</button>
+    <button class="mode-btn" id="passive-mode-btn" onclick="switchMode('passive')">&#128065; Passive</button>
+    <button class="mode-btn" id="screen-mode-btn" onclick="switchMode('screen')">&#128421; Screen Analyzer</button>
+  </div>
+  <div id="statusbar">
+    <div class="status-dot" id="status-dot"></div>
+    <span id="status-text">Ready</span>
+    <button id="chat-history-btn" onclick="toggleChatHistory()">&#128172; Memory</button>
+    <button id="clear-history-btn" onclick="clearChatHistory()">Clear</button>
+    <button id="mic-btn" onclick="toggleMic()">&#9654; Start</button>
+  </div>
+  <div id="passive-indicator" class="mode-indicator"><div class="label">Passive Listener Active</div><div class="info">Capturing system audio. Questions auto-detected.</div></div>
+  <div id="screen-indicator" class="mode-indicator">
+    <div class="label">Screen Analyzer</div>
+    <div class="info">Scroll to each part of the question and click Capture. When done, click Analyze to get the answer.</div>
+    <div style="display:flex; gap:8px; margin-top:10px;">
+      <button id="capture-screen-btn" onclick="captureScreenshot()" style="flex:1; padding:10px; background:linear-gradient(135deg,#4fd1c5,#319795); border:none; color:white; border-radius:8px; cursor:pointer; font-size:12px; font-weight:600;">📸 Capture</button>
+      <button id="analyze-screen-btn" onclick="analyzeScreenNow()" style="flex:1; padding:10px; background:linear-gradient(135deg,#ed8936,#dd6b20); border:none; color:white; border-radius:8px; cursor:pointer; font-size:12px; font-weight:600;" disabled>🤖 Analyze (0)</button>
+    </div>
+    <button id="clear-captures-btn" onclick="clearCaptures()" style="margin-top:6px; width:100%; padding:6px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); color:#a0aec0; border-radius:6px; cursor:pointer; font-size:11px;">🗑️ Clear captures</button>
+  </div>
+  <div id="chat-history-panel"><div id="chat-history-list"></div></div>
+  <div id="api-warning">No API key set. <a onclick="openSettings()">Add your API key in Settings</a></div>
+  <div id="transcript-box"><div class="label">Detected Question</div><div id="transcript-text"></div></div>
+  <div id="answer-wrap"><div class="label">AI Answer</div><div id="answer-text">Select a mode to get started.</div></div>
+  <div id="input-area" class="hide-in-passive">
+    <textarea id="manual-input" placeholder="Type a question..." onkeydown="handleKey(event)"></textarea>
+    <button id="ask-btn" onclick="askManual()">Ask</button>
+  </div>
+</div>
+
+<script>
+const { ipcRenderer } = require('electron');
+
+// ===== STATE =====
+let apiKey = '', deepseekApiKey = '', aiProvider = 'groq', deepseekModel = 'deepseek-v4-flash', conversationHistory = [], currentMode = 'manual', isListening = false;
+let mediaRecorder = null, audioContext = null, analyser = null, audioChunks = [], isProcessing = false, silenceDuration = 0, speechDetected = false;
+let passiveStream = null, passiveRecorder = null, passiveAudioContext = null, passiveAnalyser = null, passiveChunks = [], passiveSilenceDuration = 0, passiveSpeechDetected = false, passiveProcessing = false;
+let screenCaptureInterval = null, screenLastText = '', screenProcessing = false, screenStitcherBuffer = '', screenStitcherTimer = null, screenProcessedQuestions = [], screenCaptureIntervalMs = 4000;
+const SILENCE_THRESHOLD_MS = 2500, PASSIVE_SILENCE_THRESHOLD_MS = 1000, MIN_AUDIO_SIZE = 500, SPEECH_VOLUME_THRESHOLD = 25;
+
+// ===== INIT =====
+async function init() {
+  const config = await ipcRenderer.invoke('load-config');
+  apiKey = config.apiKey || '';
+  deepseekApiKey = config.deepseekApiKey || '';
+  aiProvider = config.aiProvider || 'groq';
+  deepseekModel = config.deepseekModel || 'deepseek-v4-flash';
+  if (!apiKey && aiProvider === 'groq') document.getElementById('api-warning').style.display = 'block';
+  if (!deepseekApiKey && aiProvider === 'deepseek') document.getElementById('api-warning').style.display = 'block';
+  if (config.screenCaptureInterval) screenCaptureIntervalMs = Math.max(1000, Math.min(10000, config.screenCaptureInterval * 1000));
+  loadChatHistory();
+}
+
+// ===== MODE SWITCHING =====
+function switchMode(mode) {
+  if (isListening) stopAllAudio();
+  if (passiveStream) stopPassiveMode();
+  if (screenCaptureInterval) stopScreenAnalyzer();
+  currentMode = mode;
+  var app = document.getElementById('app');
+  app.classList.remove('passive-active', 'screen-active');
+  document.getElementById('manual-mode-btn').classList.remove('active');
+  document.getElementById('passive-mode-btn').classList.remove('active');
+  document.getElementById('screen-mode-btn').classList.remove('active');
+  document.getElementById('passive-indicator').classList.remove('visible');
+  document.getElementById('screen-indicator').classList.remove('visible');
+  document.getElementById('mic-btn').style.display = '';
+  if (mode === 'manual') {
+    document.getElementById('manual-mode-btn').classList.add('active');
+    setStatus('Manual mode - click Start');
+  } else if (mode === 'passive') {
+    app.classList.add('passive-active');
+    document.getElementById('passive-mode-btn').classList.add('active');
+    document.getElementById('mic-btn').style.display = 'none';
+    document.getElementById('passive-indicator').classList.add('visible');
+    setStatus('Starting passive audio capture...');
+    startPassiveMode();
+  } else if (mode === 'screen') {
+    app.classList.add('screen-active');
+    document.getElementById('screen-mode-btn').classList.add('active');
+    document.getElementById('mic-btn').style.display = 'none';
+    document.getElementById('screen-indicator').classList.add('visible');
+    setStatus('Initializing Screen Analyzer...');
+    startScreenAnalyzer();
+  }
+}
+
+// ===== SCREEN ANALYZER (Manual multi-capture mode) =====
+var screenAnalyzing = false;
+var capturedScreenshots = []; // stores base64 images
+
+async function startScreenAnalyzer() {
+  capturedScreenshots = [];
+  updateCaptureCount();
+  document.getElementById('status-dot').classList.add('screen-active');
+  setStatus('Ready - Capture screenshots, then Analyze');
+}
+
+function stopScreenAnalyzer() {
+  screenAnalyzing = false;
+  capturedScreenshots = [];
+  document.getElementById('status-dot').classList.remove('screen-active');
+}
+
+function updateCaptureCount() {
+  var btn = document.getElementById('analyze-screen-btn');
+  var count = capturedScreenshots.length;
+  btn.innerHTML = '🤖 Analyze (' + count + ')';
+  btn.disabled = count === 0;
+}
+
+function clearCaptures() {
+  capturedScreenshots = [];
+  updateCaptureCount();
+  setStatus('Captures cleared - start fresh');
+}
+
+async function captureScreenshot() {
+  var captureBtn = document.getElementById('capture-screen-btn');
+  captureBtn.disabled = true;
+  captureBtn.innerHTML = '⏳ Capturing...';
+  setStatus('Capturing screen...');
+
+  try {
+    // Hide our window so it doesn't appear in screenshot
+    ipcRenderer.send('hide-for-screenshot');
+    await new Promise(function(r){ setTimeout(r, 300); });
+
+    var capture = await ipcRenderer.invoke('capture-screen-frame');
+    ipcRenderer.send('show-after-screenshot');
+
+    if (capture.error) {
+      setStatus('Capture failed: ' + capture.error);
+      captureBtn.disabled = false;
+      captureBtn.innerHTML = '📸 Capture';
+      return;
+    }
+
+    // Store all screen images from this capture
+    var images = capture.images || (capture.image ? [{ image: capture.image }] : []);
+    for (var i = 0; i < images.length; i++) {
+      capturedScreenshots.push(images[i].image);
+    }
+
+    // Free memory from capture object
+    capture.image = null;
+    capture.images = null;
+
+    updateCaptureCount();
+    setStatus(capturedScreenshots.length + ' screenshot(s) captured - scroll & capture more, or click Analyze');
+  } catch (e) {
+    ipcRenderer.send('show-after-screenshot');
+    setStatus('Capture error: ' + e.message);
+  }
+
+  captureBtn.disabled = false;
+  captureBtn.innerHTML = '📸 Capture';
+}
+
+async function analyzeScreenNow() {
+  if (screenAnalyzing || capturedScreenshots.length === 0) return;
+  if (!getActiveApiKey()) {
+    document.getElementById('answer-text').textContent = 'Add API key in Settings';
+    return;
+  }
+
+  screenAnalyzing = true;
+  var analyzeBtn = document.getElementById('analyze-screen-btn');
+  var captureBtn = document.getElementById('capture-screen-btn');
+  analyzeBtn.disabled = true;
+  captureBtn.disabled = true;
+  analyzeBtn.innerHTML = '🤖 Analyzing...';
+
+  var dot = document.getElementById('status-dot');
+  dot.classList.remove('screen-active'); dot.classList.add('thinking');
+  setStatus('Analyzing ' + capturedScreenshots.length + ' screenshot(s) with AI...');
+
+  var answerEl = document.getElementById('answer-text');
+  answerEl.innerHTML = '<span class="thinking-dots">Analyzing ' + capturedScreenshots.length + ' screenshot(s)...</span>';
+
+  // Vision model requires Groq key
+  var visionKey = apiKey || getActiveApiKey();
+  if (!visionKey) {
+    answerEl.textContent = 'Groq API key required for screen analysis (vision). Add it in Settings.';
+    dot.classList.remove('thinking'); dot.classList.add('screen-active');
+    analyzeBtn.disabled = false; captureBtn.disabled = false;
+    updateCaptureCount();
+    screenAnalyzing = false;
+    return;
+  }
+
+  var systemPrompt = 'You are looking at one or more screenshots from an interview or coding assessment. They may be different scroll positions of the same page, or different screens. Treat ALL images as parts of the same question/problem.\n\nRead everything carefully — including diagrams, code, tables, images, constraints, examples — and provide a complete answer.\n\nRules:\n- Coding: provide complete working code\n- SQL: complete query\n- MCQ: state the correct option and explain briefly\n- Math: show steps and final answer\n- Diagrams/system design: explain clearly\n- General: concise direct answer\n- No preamble. Jump straight to the answer.';
+
+  // Build multi-image content
+  var content = [];
+  var count = capturedScreenshots.length;
+  if (count === 1) {
+    content.push({ type: 'text', text: 'Solve whatever is on this screen. Answer directly.' });
+  } else {
+    content.push({ type: 'text', text: 'These ' + count + ' screenshots are different parts of the same question (scrolled sections). Read all of them together and solve the complete problem. Answer directly.' });
+  }
+  for (var i = 0; i < count; i++) {
+    content.push({
+      type: 'image_url',
+      image_url: { url: 'data:image/jpeg;base64,' + capturedScreenshots[i] }
+    });
+  }
+
+  try {
+    var data = await ipcRenderer.invoke('call-ai-api', {
+      apiKey: visionKey,
+      model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+      messages: [{ role: 'user', content: content }],
+      systemPrompt: systemPrompt
+    });
+
+    if (data.error) {
+      answerEl.textContent = 'Error: ' + data.error.message;
+    } else {
+      var ans = data.content[0].text;
+      conversationHistory.push({ role: 'user', content: '[Screen analysis - ' + count + ' screenshot(s)]' });
+      conversationHistory.push({ role: 'assistant', content: ans });
+      saveChatHistory(); renderChatHistory();
+      answerEl.innerHTML = renderAnswer(ans);
+      setStatus('Answer ready - capture more or clear for next question');
+    }
+  } catch (e) {
+    answerEl.textContent = 'Error: ' + e.message;
+    setStatus('Error');
+  }
+
+  // Reset for next question
+  capturedScreenshots = [];
+  updateCaptureCount();
+  dot.classList.remove('thinking'); dot.classList.add('screen-active');
+  captureBtn.disabled = false;
+  screenAnalyzing = false;
+}
+
+function textSimilarity(a, b) {
+  if (a === b) return 1.0;
+  if (!a || !b) return 0.0;
+  var longer = a.length > b.length ? a : b;
+  var shorter = a.length > b.length ? b : a;
+  var matches = 0, ws = 50, total = Math.ceil(shorter.length / ws);
+  for (var i = 0; i < shorter.length; i += ws) {
+    if (longer.includes(shorter.substring(i, i + ws))) matches++;
+  }
+  return total > 0 ? matches / total : 0;
+}
+
+// ===== PASSIVE MODE =====
+async function startPassiveMode() {
+  try {
+    var sources = await ipcRenderer.invoke('get-desktop-sources');
+    var src = sources.find(function(s){return s.name==='Entire Screen'||s.name==='Entire screen';}) || sources.find(function(s){return s.id.startsWith('screen:');}) || sources[0];
+    if (!src) { setStatus('No screen source found'); return; }
+    passiveStream = await navigator.mediaDevices.getUserMedia({ audio:{mandatory:{chromeMediaSource:'desktop'}}, video:{mandatory:{chromeMediaSource:'desktop',chromeMediaSourceId:src.id,minWidth:1,maxWidth:1,minHeight:1,maxHeight:1}} });
+    passiveStream.getVideoTracks().forEach(function(t){t.stop();});
+    var at = passiveStream.getAudioTracks();
+    if (!at.length) { setStatus('No system audio'); return; }
+    var audioStream = new MediaStream(at);
+    passiveStream = audioStream;
+    passiveAudioContext = new AudioContext();
+    passiveAnalyser = passiveAudioContext.createAnalyser();
+    passiveAudioContext.createMediaStreamSource(audioStream).connect(passiveAnalyser);
+    passiveAnalyser.fftSize = 256;
+    startPassiveRecording(audioStream);
+    document.getElementById('status-dot').classList.add('passive');
+    setStatus('Passive listening active');
+  } catch (e) { setStatus('Passive mode error: ' + e.message); await startPassiveFallback(); }
+}
+async function startPassiveFallback() {
+  try {
+    var devices = await navigator.mediaDevices.enumerateDevices();
+    var lb = devices.filter(function(d){return d.kind==='audioinput';}).find(function(d){ var l=d.label.toLowerCase(); return l.includes('stereo mix')||l.includes('virtual')||l.includes('cable')||l.includes('voicemeeter')||l.includes('loopback'); });
+    if (lb) {
+      passiveStream = await navigator.mediaDevices.getUserMedia({audio:{deviceId:{exact:lb.deviceId},echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+      passiveAudioContext = new AudioContext(); passiveAnalyser = passiveAudioContext.createAnalyser();
+      passiveAudioContext.createMediaStreamSource(passiveStream).connect(passiveAnalyser); passiveAnalyser.fftSize = 256;
+      startPassiveRecording(passiveStream); document.getElementById('status-dot').classList.add('passive'); setStatus('Passive via ' + lb.label);
+    } else { setStatus('No loopback device found'); }
+  } catch(e) { setStatus('Fallback failed: ' + e.message); }
+}
+function startPassiveRecording(stream) {
+  passiveChunks=[]; passiveSilenceDuration=0; passiveSpeechDetected=false;
+  passiveRecorder = new MediaRecorder(stream, {mimeType:'audio/webm'});
+  passiveRecorder.ondataavailable = function(e){if(e.data.size>0)passiveChunks.push(e.data);};
+  passiveRecorder.onstop = function(){};
+  passiveRecorder.start(500); monitorPassiveAudio();
+}
+function monitorPassiveAudio() {
+  if (currentMode!=='passive'||passiveProcessing||!passiveAnalyser) return;
+  var d = new Uint8Array(passiveAnalyser.frequencyBinCount); passiveAnalyser.getByteFrequencyData(d);
+  var sum=0; for(var i=0;i<d.length;i++) sum+=d[i];
+  if (sum/d.length > SPEECH_VOLUME_THRESHOLD) { passiveSpeechDetected=true; passiveSilenceDuration=0; }
+  else if (passiveSpeechDetected) { passiveSilenceDuration+=100; if(passiveSilenceDuration>=PASSIVE_SILENCE_THRESHOLD_MS){ if(passiveRecorder&&passiveRecorder.state==='recording')passiveRecorder.stop(); var blob=new Blob(passiveChunks,{type:'audio/webm'}); if(blob.size>MIN_AUDIO_SIZE){processPassiveAudio(blob);}else{restartPassiveCapture();} return; } }
+  setTimeout(monitorPassiveAudio, 100);
+}
+async function processPassiveAudio(blob) {
+  passiveProcessing=true; setStatus('Transcribing...');
+  try { var b64=await blobToBase64(blob); var r=await ipcRenderer.invoke('transcribe-audio',{apiKey:apiKey,audioData:b64});
+    if(r.text&&r.text.trim().length>3){ var t=r.text.trim(); document.getElementById('transcript-text').textContent=t;document.getElementById('transcript-box').classList.add('visible');await askQuestion(t);setTimeout(function(){document.getElementById('transcript-box').classList.remove('visible');},10000); }else{setStatus('Passive listening...');}
+  }catch(e){setStatus('Passive listening...');}
+  passiveProcessing=false; restartPassiveCapture();
+}
+function restartPassiveCapture(){if(currentMode==='passive'&&passiveStream){passiveChunks=[];passiveSilenceDuration=0;passiveSpeechDetected=false;setTimeout(function(){if(currentMode==='passive'&&!passiveProcessing&&passiveStream)startPassiveRecording(passiveStream);},300);}}
+function stopPassiveMode(){if(passiveRecorder&&passiveRecorder.state!=='inactive')passiveRecorder.stop();if(passiveStream){passiveStream.getTracks().forEach(function(t){t.stop();});passiveStream=null;}if(passiveAudioContext){passiveAudioContext.close();passiveAudioContext=null;}passiveAnalyser=null;passiveProcessing=false;document.getElementById('status-dot').classList.remove('passive');}
+function blobToBase64(blob){return new Promise(function(resolve){var r=new FileReader();r.onloadend=function(){resolve(r.result.split(',')[1]);};r.readAsDataURL(blob);});}
+
+// ===== MANUAL MODE =====
+async function startAudioRecording(){try{var stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});audioContext=new AudioContext();analyser=audioContext.createAnalyser();audioContext.createMediaStreamSource(stream).connect(analyser);analyser.fftSize=256;mediaRecorder=new MediaRecorder(stream,{mimeType:'audio/webm'});audioChunks=[];silenceDuration=0;speechDetected=false;isProcessing=false;mediaRecorder.ondataavailable=function(e){if(e.data.size>0)audioChunks.push(e.data);};mediaRecorder.onstop=async function(){if(isProcessing)return;var blob=new Blob(audioChunks,{type:'audio/webm'});stream.getTracks().forEach(function(t){t.stop();});if(blob.size>MIN_AUDIO_SIZE)await processManualAudio(blob);else if(isListening&&!isProcessing)setTimeout(startAudioRecording,500);};mediaRecorder.start(500);monitorManualAudio();setStatus('Listening...');return true;}catch(e){setStatus('Audio error: '+e.message);return false;}}
+function monitorManualAudio(){if(!isListening||isProcessing||!analyser)return;var d=new Uint8Array(analyser.frequencyBinCount);analyser.getByteFrequencyData(d);var sum=0;for(var i=0;i<d.length;i++)sum+=d[i];if(sum/d.length>30){speechDetected=true;silenceDuration=0;}else if(speechDetected){silenceDuration+=100;if(silenceDuration>=SILENCE_THRESHOLD_MS&&!isProcessing){if(mediaRecorder&&mediaRecorder.state!=='inactive')mediaRecorder.stop();return;}}if(isListening&&!isProcessing)setTimeout(monitorManualAudio,100);}
+async function processManualAudio(blob){isProcessing=true;setStatus('Processing...');var b64=await blobToBase64(blob);var r=await ipcRenderer.invoke('transcribe-audio',{apiKey:apiKey,audioData:b64});if(r.text&&r.text.trim()){document.getElementById('transcript-text').textContent=r.text;document.getElementById('transcript-box').classList.add('visible');await askQuestion(r.text.trim());setTimeout(function(){document.getElementById('transcript-box').classList.remove('visible');},8000);}else{setStatus('Transcription error');}isProcessing=false;if(isListening){audioChunks=[];silenceDuration=0;speechDetected=false;setTimeout(function(){if(isListening&&!isProcessing)startAudioRecording();},1000);}}
+function stopAllAudio(){isListening=false;isProcessing=false;if(mediaRecorder&&mediaRecorder.state!=='inactive')mediaRecorder.stop();if(audioContext){audioContext.close();audioContext=null;}analyser=null;document.getElementById('mic-btn').textContent='\u25B6 Start';document.getElementById('mic-btn').classList.remove('active');document.getElementById('status-dot').classList.remove('listening');setStatus('Stopped');}
+async function toggleMic(){if(isListening){stopAllAudio();}else{var ok=await startAudioRecording();if(!ok)return;isListening=true;document.getElementById('mic-btn').textContent='\u23F9 Stop';document.getElementById('mic-btn').classList.add('active');document.getElementById('status-dot').classList.add('listening');}}
+
+// ===== AI (shared) =====
+async function callAIStream(messages, systemPrompt, onDelta) {
+  var streamId = 'stream_' + Date.now() + '_' + Math.random();
+  var provider = aiProvider === 'deepseek' ? 'deepseek' : 'groq';
+  var key = aiProvider === 'deepseek' ? deepseekApiKey : apiKey;
+  var model = aiProvider === 'deepseek' ? deepseekModel : 'llama-3.3-70b-versatile';
+
+  var listener = function(e, payload) {
+    if (payload && payload.streamId === streamId && payload.delta) {
+      onDelta(payload.delta);
+    }
+  };
+  ipcRenderer.on('ai-stream-chunk', listener);
+  try {
+    var result = await ipcRenderer.invoke('call-ai-stream', {
+      provider: provider, apiKey: key, model: model,
+      messages: messages, systemPrompt: systemPrompt, streamId: streamId
+    });
+    return result;
+  } finally {
+    ipcRenderer.removeListener('ai-stream-chunk', listener);
+  }
+}
+
+function getActiveApiKey() {
+  return aiProvider === 'deepseek' ? deepseekApiKey : apiKey;
+}
+
+async function askQuestion(question){
+  if(!getActiveApiKey()){document.getElementById('answer-text').textContent='Add API key in Settings';return;}
+  var dot=document.getElementById('status-dot');dot.classList.remove('listening','passive','screen-active');dot.classList.add('thinking');setStatus('Getting answer...');
+  var el=document.getElementById('answer-text');el.innerHTML='<span class="thinking-dots">Thinking...</span>';
+  conversationHistory.push({role:'user',content:question});saveChatHistory();
+  var streamed='';
+  var firstChunk=true;
+  try{
+    var data=await callAIStream(conversationHistory.slice(-6),
+      'You are a real-time interview assistant. Give concise direct answers. For coding: working code. For behavioral: STAR method. Keep under 200 words unless complex. No preamble.',
+      function(delta){
+        if(firstChunk){ el.innerHTML=''; firstChunk=false; setStatus('Answering...'); }
+        streamed+=delta;
+        el.innerHTML=renderAnswer(streamed);
+      }
+    );
+    if(data.error){el.textContent='Error: '+data.error.message;}
+    else{
+      var ans=data.content[0].text || streamed;
+      conversationHistory.push({role:'assistant',content:ans});saveChatHistory();renderChatHistory();
+      el.innerHTML=renderAnswer(ans);
+    }
+  }catch(e){el.textContent='Network error: '+e.message;}
+  dot.classList.remove('thinking');restoreStatusDot();setStatus(currentMode==='passive'?'Passive listening...':currentMode==='screen'?'Screen monitoring...':(isListening?'Listening...':'Ready'));
+}
+function restoreStatusDot(){var dot=document.getElementById('status-dot');if(currentMode==='passive')dot.classList.add('passive');else if(currentMode==='screen')dot.classList.add('screen-active');else if(isListening)dot.classList.add('listening');}
+
+// ===== CHAT =====
+function loadChatHistory(){try{var s=localStorage.getItem('interviewChatHistory');if(s){conversationHistory=JSON.parse(s);renderChatHistory();}}catch(e){}}
+function saveChatHistory(){try{localStorage.setItem('interviewChatHistory',JSON.stringify(conversationHistory));}catch(e){}}
+function renderChatHistory(){var list=document.getElementById('chat-history-list');var u=conversationHistory.filter(function(m){return m.role==='user';});if(!u.length){list.innerHTML='<div class="chat-empty">No history</div>';return;}var a=conversationHistory.filter(function(m){return m.role==='assistant';});list.innerHTML=u.map(function(m,i){return '<div class="chat-item"><div class="chat-q">Q: '+escapeHtml(m.content.substring(0,60))+'</div><div class="chat-a">A: '+escapeHtml((a[i]?a[i].content:'').substring(0,100))+'</div></div>';}).join('');}
+function toggleChatHistory(){document.getElementById('chat-history-panel').classList.toggle('visible');document.getElementById('chat-history-btn').classList.toggle('active');}
+function clearChatHistory(){if(confirm('Clear history?')){conversationHistory=[];saveChatHistory();renderChatHistory();setStatus('Cleared');}}
+
+// ===== UTIL =====
+function handleKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();askManual();}}
+function askManual(){var input=document.getElementById('manual-input');var q=input.value.trim();if(!q)return;input.value='';document.getElementById('transcript-text').textContent=q;document.getElementById('transcript-box').classList.add('visible');askQuestion(q);setTimeout(function(){document.getElementById('transcript-box').classList.remove('visible');},8000);}
+function renderAnswer(text){return text.replace(/```(\w*)\n?([\s\S]*?)```/g,function(_,l,c){return '<pre>'+escapeHtml(c.trim())+'</pre>';}).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/\n/g,'<br>');}
+function escapeHtml(t){return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function setStatus(msg){document.getElementById('status-text').textContent=msg;}
+function openSettings(){ipcRenderer.send('open-settings');}
+function minimize(){ipcRenderer.send('minimize-window');}
+function closeApp(){ipcRenderer.send('close-app');}
+ipcRenderer.on('api-key-updated',function(e,key){apiKey=key;document.getElementById('api-warning').style.display=key?'none':'block';});
+ipcRenderer.on('provider-updated',function(e,provider){
+  aiProvider=provider;
+  // Reload full config to get deepseek settings
+  ipcRenderer.invoke('load-config').then(function(config){
+    deepseekApiKey=config.deepseekApiKey||'';
+    deepseekModel=config.deepseekModel||'deepseek-v4-flash';
+    var hasKey=aiProvider==='deepseek'?deepseekApiKey:apiKey;
+    document.getElementById('api-warning').style.display=hasKey?'none':'block';
+  });
+});
+init();
+</script>
+</body>
+</html>

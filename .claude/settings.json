@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s \"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent\" -H \"Content-Type: application/json\" -H \"X-goog-api-key: AIzaSyDp5K9isq5P4-sceSnBhSeKK4OE23iih4Y\" -X POST -d '{\"contents\":[{\"parts\":[{\"text\":\"Explain AI in 3 words\"}]}]}')",
+      "Bash(curl -s \"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent\" -H \"Content-Type: application/json\" -H \"X-goog-api-key: AIzaSyDohvM4uiJwUrVWnnIraGSoK2aJ9trBdNE\" -X POST -d '{\"contents\":[{\"parts\":[{\"text\":\"hi\"}]}]}')",
+      "Bash(curl -s \"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent\" -H \"Content-Type: application/json\" -H \"X-goog-api-key: AIzaSyDohvM4uiJwUrVWnnIraGSoK2aJ9trBdNE\" -X POST -d '{\"contents\":[{\"parts\":[{\"text\":\"hi\"}]}]}')",
+      "Bash(curl -s \"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent\" -H \"Content-Type: application/json\" -H \"X-goog-api-key: AIzaSyDp5K9isq5P4-sceSnBhSeKK4OE23iih4Y\" -X POST -d '{\"contents\":[{\"parts\":[{\"text\":\"hi\"}]}]}')",
+      "Bash(curl -s \"https://api.groq.com/openai/v1/chat/completions\" -H \"Authorization: Bearer gsk_test_key\" -H \"Content-Type: application/json\" -d '{\"model\":\"llama-3.3-70b-versatile\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":20}')"
+    ]
+  }
+}

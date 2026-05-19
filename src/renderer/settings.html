@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Settings — Interview Assistant</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0d1117;
+      color: #e2e8f0;
+      padding: 24px;
+    }
+    h1 { font-size: 18px; color: #63b3ed; margin-bottom: 4px; }
+    .sub { font-size: 12px; color: #4a5568; margin-bottom: 24px; }
+
+    .section {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(99,179,237,0.15);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .section h2 { font-size: 13px; color: #a0aec0; margin-bottom: 12px; font-weight: 600; }
+
+    label { font-size: 12px; color: #a0aec0; display: block; margin-bottom: 5px; }
+    input[type=text], input[type=password], textarea, select {
+      width: 100%;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(99,179,237,0.2);
+      border-radius: 7px;
+      padding: 8px 10px;
+      color: #e2e8f0;
+      font-size: 13px;
+      outline: none;
+      transition: border 0.2s;
+    }
+    input:focus, textarea:focus, select:focus { border-color: rgba(99,179,237,0.5); }
+    textarea { resize: vertical; min-height: 80px; }
+    select { cursor: pointer; }
+    select option { background: #1a202c; color: #e2e8f0; }
+
+    .hint {
+      font-size: 11px;
+      color: #4a5568;
+      margin-top: 5px;
+    }
+    .hint a { color: #63b3ed; }
+
+    .row { display: flex; gap: 10px; margin-top: 10px; }
+
+    button {
+      background: linear-gradient(135deg, #4299e1, #3182ce);
+      border: none;
+      color: white;
+      padding: 9px 20px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      transition: opacity 0.2s;
+    }
+    button:hover { opacity: 0.85; }
+    button.secondary {
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: #a0aec0;
+    }
+
+    #save-msg {
+      display: none;
+      color: #68d391;
+      font-size: 12px;
+      margin-top: 8px;
+    }
+
+    .privacy-info {
+      background: rgba(72,187,120,0.08);
+      border: 1px solid rgba(72,187,120,0.2);
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 12px;
+      color: #9ae6b4;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+  <h1>⚙️ Settings</h1>
+  <p class="sub">Configure your Interview Assistant</p>
+
+  <div class="section">
+    <h2>🤖 AI Provider</h2>
+    <label>Select which AI provider to use</label>
+    <select id="ai-provider" onchange="onProviderChange()">
+      <option value="groq">🟠 Groq AI (Llama 3.3 70B)</option>
+      <option value="deepseek">🔵 DeepSeek</option>
+    </select>
+  </div>
+
+  <div class="section">
+    <h2>🔑 Groq API Key</h2>
+    <label>API Key (stored locally on your machine only)</label>
+    <input type="password" id="api-key" placeholder="gsk_..." />
+    <p class="hint">
+      Get a free key at <a href="#" onclick="openExternal('https://console.groq.com')">console.groq.com</a> — Llama 3.3 70B is free and fast.
+    </p>
+  </div>
+
+  <div class="section" id="deepseek-section">
+    <h2>🔵 DeepSeek Settings</h2>
+    <label>DeepSeek API Key (stored locally on your machine only)</label>
+    <input type="password" id="deepseek-api-key" placeholder="sk-..." />
+    <p class="hint">
+      Get your key at <a href="#" onclick="openExternal('https://platform.deepseek.com')">platform.deepseek.com</a>
+    </p>
+
+    <br/>
+    <label>DeepSeek Model</label>
+    <select id="deepseek-model">
+      <option value="deepseek-v4-flash">⚡ deepseek-v4-flash — Fast, real-time answers (recommended)</option>
+      <option value="deepseek-v4-pro">🧠 deepseek-v4-pro — Deep reasoning, complex problems</option>
+    </select>
+    <p class="hint">Flash is faster for interviews. Pro is better for complex coding problems.</p>
+  </div>
+
+  <div class="section">
+    <h2>📝 Your Context (Optional)</h2>
+    <label>Resume / Background (paste key points)</label>
+    <textarea id="resume-context" placeholder="e.g. 3 years React developer at XYZ Corp, built payment systems, led team of 4..."></textarea>
+    <div class="hint">This helps the AI give answers tailored to your experience.</div>
+
+    <br/>
+    <label>Target Role / Job Description</label>
+    <textarea id="job-context" placeholder="e.g. Senior Frontend Engineer at a fintech startup, React, TypeScript, Node.js..."></textarea>
+  </div>
+
+  <div class="section">
+    <h2>🖥 Screen Analyzer</h2>
+    <label>Screen Capture Interval (seconds)</label>
+    <input type="number" id="screen-interval" min="1" max="10" value="3" />
+    <div class="hint">How often to capture the screen for question detection (1-10 seconds). Lower = faster detection but more CPU.</div>
+  </div>
+
+  <div class="section">
+    <h2>🛡️ Privacy Info</h2>
+    <div class="privacy-info">
+      ✅ <strong>Invisible on screen share</strong> — uses OS-level window protection<br/>
+      ✅ <strong>API key stored locally</strong> — never sent anywhere except Anthropic<br/>
+      ✅ <strong>No data logging</strong> — conversations stay in memory only<br/>
+      ✅ <strong>Hidden from taskbar & dock</strong> on macOS
+    </div>
+  </div>
+
+  <div class="row">
+    <button onclick="save()">💾 Save Settings</button>
+    <button class="secondary" onclick="window.close()">Cancel</button>
+  </div>
+  <div id="save-msg">✅ Settings saved successfully!</div>
+
+<script>
+  const { ipcRenderer } = require('electron');
+  const { shell } = require('electron');
+
+  async function load() {
+    const config = await ipcRenderer.invoke('load-config');
+    if (config.apiKey) document.getElementById('api-key').value = config.apiKey;
+    if (config.resumeContext) document.getElementById('resume-context').value = config.resumeContext;
+    if (config.jobContext) document.getElementById('job-context').value = config.jobContext;
+    if (config.screenCaptureInterval) document.getElementById('screen-interval').value = config.screenCaptureInterval;
+    if (config.aiProvider) document.getElementById('ai-provider').value = config.aiProvider;
+    if (config.deepseekApiKey) document.getElementById('deepseek-api-key').value = config.deepseekApiKey;
+    if (config.deepseekModel) document.getElementById('deepseek-model').value = config.deepseekModel;
+    onProviderChange();
+  }
+
+  function onProviderChange() {
+    const provider = document.getElementById('ai-provider').value;
+    const deepseekSection = document.getElementById('deepseek-section');
+    deepseekSection.style.display = provider === 'deepseek' ? 'block' : 'none';
+  }
+
+  function save() {
+    const config = {
+      apiKey: document.getElementById('api-key').value.trim(),
+      resumeContext: document.getElementById('resume-context').value.trim(),
+      jobContext: document.getElementById('job-context').value.trim(),
+      screenCaptureInterval: Math.max(1, Math.min(10, parseInt(document.getElementById('screen-interval').value) || 3)),
+      aiProvider: document.getElementById('ai-provider').value,
+      deepseekApiKey: document.getElementById('deepseek-api-key').value.trim(),
+      deepseekModel: document.getElementById('deepseek-model').value,
+    };
+
+    ipcRenderer.send('save-config', config);
+    ipcRenderer.send('api-key-updated-broadcast', config.apiKey);
+    ipcRenderer.send('provider-updated-broadcast', config.aiProvider);
+
+    const msg = document.getElementById('save-msg');
+    msg.style.display = 'block';
+    setTimeout(() => msg.style.display = 'none', 2500);
+  }
+
+  function openExternal(url) {
+    shell.openExternal(url);
+  }
+
+  ipcRenderer.on('config-saved', () => {});
+
+  load();
+</script>
+</body>
+</html>
