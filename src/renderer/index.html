@@ -118,6 +118,7 @@ const { ipcRenderer } = require('electron');
 
 // ===== STATE =====
 let apiKey = '', deepseekApiKey = '', aiProvider = 'groq', deepseekModel = 'deepseek-v4-flash', conversationHistory = [], currentMode = 'manual', isListening = false;
+var appPlatform = 'win32'; // updated on init via IPC
 let mediaRecorder = null, audioContext = null, analyser = null, audioChunks = [], isProcessing = false, silenceDuration = 0, speechDetected = false;
 let passiveStream = null, passiveRecorder = null, passiveAudioContext = null, passiveAnalyser = null, passiveChunks = [], passiveSilenceDuration = 0, passiveSpeechDetected = false, passiveProcessing = false;
 let screenCaptureInterval = null, screenLastText = '', screenProcessing = false, screenStitcherBuffer = '', screenStitcherTimer = null, screenProcessedQuestions = [], screenCaptureIntervalMs = 4000;
@@ -125,6 +126,7 @@ const SILENCE_THRESHOLD_MS = 2500, PASSIVE_SILENCE_THRESHOLD_MS = 1000, MIN_AUDI
 
 // ===== INIT =====
 async function init() {
+  try { appPlatform = await ipcRenderer.invoke('get-platform'); } catch(e) {}
   const config = await ipcRenderer.invoke('load-config');
   apiKey = config.apiKey || '';
   deepseekApiKey = config.deepseekApiKey || '';
@@ -336,6 +338,23 @@ function textSimilarity(a, b) {
 
 // ===== PASSIVE MODE =====
 async function startPassiveMode() {
+  // Detect platform once
+  if (!appPlatform || appPlatform === 'win32') {
+    try { appPlatform = await ipcRenderer.invoke('get-platform'); } catch(e) {}
+  }
+
+  // macOS: skip desktopCapturer audio (not supported) and try mic-based fallback first
+  if (appPlatform === 'darwin') {
+    setStatus('Starting passive mode (macOS)...');
+    var ok = await startPassiveMacOS();
+    if (!ok) {
+      setStatus('macOS: install BlackHole or use a virtual audio driver for system audio. Falling back to microphone...');
+      await startPassiveMic();
+    }
+    return;
+  }
+
+  // Windows / Linux: try desktopCapturer (system audio loopback)
   try {
     var sources = await ipcRenderer.invoke('get-desktop-sources');
     var src = sources.find(function(s){return s.name==='Entire Screen'||s.name==='Entire screen';}) || sources.find(function(s){return s.id.startsWith('screen:');}) || sources[0];
@@ -343,7 +362,7 @@ async function startPassiveMode() {
     passiveStream = await navigator.mediaDevices.getUserMedia({ audio:{mandatory:{chromeMediaSource:'desktop'}}, video:{mandatory:{chromeMediaSource:'desktop',chromeMediaSourceId:src.id,minWidth:1,maxWidth:1,minHeight:1,maxHeight:1}} });
     passiveStream.getVideoTracks().forEach(function(t){t.stop();});
     var at = passiveStream.getAudioTracks();
-    if (!at.length) { setStatus('No system audio'); return; }
+    if (!at.length) { setStatus('No system audio'); await startPassiveFallback(); return; }
     var audioStream = new MediaStream(at);
     passiveStream = audioStream;
     passiveAudioContext = new AudioContext();
@@ -355,16 +374,60 @@ async function startPassiveMode() {
     setStatus('Passive listening active');
   } catch (e) { setStatus('Passive mode error: ' + e.message); await startPassiveFallback(); }
 }
+
+// macOS: try to find a virtual audio device (BlackHole/Loopback/etc)
+async function startPassiveMacOS() {
+  try {
+    var devices = await navigator.mediaDevices.enumerateDevices();
+    var audioInputs = devices.filter(function(d){return d.kind==='audioinput';});
+    var lb = audioInputs.find(function(d){
+      var l = (d.label || '').toLowerCase();
+      return l.includes('blackhole') || l.includes('loopback') || l.includes('soundflower') || l.includes('aggregate') || l.includes('multi-output') || l.includes('virtual');
+    });
+    if (!lb) return false;
+    passiveStream = await navigator.mediaDevices.getUserMedia({audio:{deviceId:{exact:lb.deviceId},echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+    passiveAudioContext = new AudioContext();
+    passiveAnalyser = passiveAudioContext.createAnalyser();
+    passiveAudioContext.createMediaStreamSource(passiveStream).connect(passiveAnalyser);
+    passiveAnalyser.fftSize = 256;
+    startPassiveRecording(passiveStream);
+    document.getElementById('status-dot').classList.add('passive');
+    setStatus('Passive via ' + lb.label);
+    return true;
+  } catch(e) { return false; }
+}
+
+// Mic-based passive listening (works everywhere, including macOS without virtual audio)
+async function startPassiveMic() {
+  try {
+    passiveStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true }
+    });
+    passiveAudioContext = new AudioContext();
+    passiveAnalyser = passiveAudioContext.createAnalyser();
+    passiveAudioContext.createMediaStreamSource(passiveStream).connect(passiveAnalyser);
+    passiveAnalyser.fftSize = 256;
+    startPassiveRecording(passiveStream);
+    document.getElementById('status-dot').classList.add('passive');
+    setStatus('Passive (mic) - listening to your microphone');
+  } catch(e) {
+    setStatus('Microphone access denied: ' + e.message);
+  }
+}
+
 async function startPassiveFallback() {
   try {
     var devices = await navigator.mediaDevices.enumerateDevices();
-    var lb = devices.filter(function(d){return d.kind==='audioinput';}).find(function(d){ var l=d.label.toLowerCase(); return l.includes('stereo mix')||l.includes('virtual')||l.includes('cable')||l.includes('voicemeeter')||l.includes('loopback'); });
+    var lb = devices.filter(function(d){return d.kind==='audioinput';}).find(function(d){ var l=d.label.toLowerCase(); return l.includes('stereo mix')||l.includes('virtual')||l.includes('cable')||l.includes('voicemeeter')||l.includes('loopback')||l.includes('blackhole'); });
     if (lb) {
       passiveStream = await navigator.mediaDevices.getUserMedia({audio:{deviceId:{exact:lb.deviceId},echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
       passiveAudioContext = new AudioContext(); passiveAnalyser = passiveAudioContext.createAnalyser();
       passiveAudioContext.createMediaStreamSource(passiveStream).connect(passiveAnalyser); passiveAnalyser.fftSize = 256;
       startPassiveRecording(passiveStream); document.getElementById('status-dot').classList.add('passive'); setStatus('Passive via ' + lb.label);
-    } else { setStatus('No loopback device found'); }
+    } else {
+      // Last resort: use the microphone
+      await startPassiveMic();
+    }
   } catch(e) { setStatus('Fallback failed: ' + e.message); }
 }
 function startPassiveRecording(stream) {

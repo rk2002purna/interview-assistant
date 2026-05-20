@@ -78,9 +78,13 @@ ipcMain.on('hide-for-screenshot', () => {
 ipcMain.on('show-after-screenshot', () => {
   if (mainWindow) {
     mainWindow.showInactive();
-    // Re-apply always-on-top after showing (macOS can lose it)
+    // Re-apply ALL window protections after show (they get reset on hide/show cycle)
+    if (process.platform === 'win32' || process.platform === 'darwin') {
+      mainWindow.setContentProtection(true);
+    }
     if (process.platform === 'darwin') {
       mainWindow.setAlwaysOnTop(true, 'floating', 1);
+      mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     } else {
       mainWindow.setAlwaysOnTop(true, 'screen-saver');
     }
@@ -107,6 +111,10 @@ ipcMain.handle('load-config', () => {
     return JSON.parse(fs.readFileSync(configPath, 'utf8'));
   }
   return {};
+});
+
+ipcMain.handle('get-platform', () => {
+  return process.platform;
 });
 
 ipcMain.handle('call-ai-api', async (event, { apiKey, model, messages, systemPrompt }) => {
