@@ -380,9 +380,16 @@ async function startPassiveMacOS() {
   try {
     var devices = await navigator.mediaDevices.enumerateDevices();
     var audioInputs = devices.filter(function(d){return d.kind==='audioinput';});
+    // Priority order: BlackHole first, then other virtual audio drivers
     var lb = audioInputs.find(function(d){
       var l = (d.label || '').toLowerCase();
-      return l.includes('blackhole') || l.includes('loopback') || l.includes('soundflower') || l.includes('aggregate') || l.includes('multi-output') || l.includes('virtual');
+      return l.includes('blackhole');
+    }) || audioInputs.find(function(d){
+      var l = (d.label || '').toLowerCase();
+      return l.includes('loopback') || l.includes('soundflower');
+    }) || audioInputs.find(function(d){
+      var l = (d.label || '').toLowerCase();
+      return l.includes('aggregate') || l.includes('multi-output');
     });
     if (!lb) return false;
     passiveStream = await navigator.mediaDevices.getUserMedia({audio:{deviceId:{exact:lb.deviceId},echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
@@ -418,7 +425,13 @@ async function startPassiveMic() {
 async function startPassiveFallback() {
   try {
     var devices = await navigator.mediaDevices.enumerateDevices();
-    var lb = devices.filter(function(d){return d.kind==='audioinput';}).find(function(d){ var l=d.label.toLowerCase(); return l.includes('stereo mix')||l.includes('virtual')||l.includes('cable')||l.includes('voicemeeter')||l.includes('loopback')||l.includes('blackhole'); });
+    var audioInputs = devices.filter(function(d){return d.kind==='audioinput';});
+    // Exclude Teams/Zoom virtual devices — they don't carry system audio
+    var lb = audioInputs.find(function(d){
+      var l = (d.label || '').toLowerCase();
+      if (l.includes('teams') || l.includes('zoom')) return false;
+      return l.includes('blackhole') || l.includes('stereo mix') || l.includes('cable') || l.includes('voicemeeter') || l.includes('loopback') || l.includes('soundflower');
+    });
     if (lb) {
       passiveStream = await navigator.mediaDevices.getUserMedia({audio:{deviceId:{exact:lb.deviceId},echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
       passiveAudioContext = new AudioContext(); passiveAnalyser = passiveAudioContext.createAnalyser();
