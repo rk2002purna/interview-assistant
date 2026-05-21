@@ -120,9 +120,10 @@ const { ipcRenderer } = require('electron');
 let apiKey = '', deepseekApiKey = '', aiProvider = 'groq', deepseekModel = 'deepseek-v4-flash', conversationHistory = [], currentMode = 'manual', isListening = false;
 var appPlatform = 'win32'; // updated on init via IPC
 let mediaRecorder = null, audioContext = null, analyser = null, audioChunks = [], isProcessing = false, silenceDuration = 0, speechDetected = false;
-let passiveStream = null, passiveRecorder = null, passiveAudioContext = null, passiveAnalyser = null, passiveChunks = [], passiveSilenceDuration = 0, passiveSpeechDetected = false, passiveProcessing = false;
+let passiveStream = null, passiveRecorder = null, passiveAudioContext = null, passiveAnalyser = null, passiveChunks = [], passiveProcessing = false;
+let passiveLevelHistory = [], passiveSpeaking = false, passiveSilenceFrames = 0, passiveSpeechFrames = 0, passiveBaseline = 0, passiveMonitorTimer = null, passiveActiveTranscriptions = 0;
 let screenCaptureInterval = null, screenLastText = '', screenProcessing = false, screenStitcherBuffer = '', screenStitcherTimer = null, screenProcessedQuestions = [], screenCaptureIntervalMs = 4000;
-const SILENCE_THRESHOLD_MS = 2500, PASSIVE_SILENCE_THRESHOLD_MS = 1000, MIN_AUDIO_SIZE = 500, SPEECH_VOLUME_THRESHOLD = 25;
+const SILENCE_THRESHOLD_MS = 2500, MIN_AUDIO_SIZE = 500, SPEECH_VOLUME_THRESHOLD = 25;
 
 // ===== INIT =====
 async function init() {
@@ -443,30 +444,160 @@ async function startPassiveFallback() {
     }
   } catch(e) { setStatus('Fallback failed: ' + e.message); }
 }
+// ===== Continuous passive recording with sliding-window VAD =====
+// Strategy: keep recording continuously. Use volume monitoring to detect speech
+// boundaries. When utterance ends, we stop the current recorder (so the WebM
+// finalizes properly with full header+data) and immediately start a new one.
+// This avoids chunk-slicing which breaks WebM container format.
+
+let passiveRestartTimer = null;
+
 function startPassiveRecording(stream) {
-  passiveChunks=[]; passiveSilenceDuration=0; passiveSpeechDetected=false;
-  passiveRecorder = new MediaRecorder(stream, {mimeType:'audio/webm'});
-  passiveRecorder.ondataavailable = function(e){if(e.data.size>0)passiveChunks.push(e.data);};
-  passiveRecorder.onstop = function(){};
-  passiveRecorder.start(500); monitorPassiveAudio();
+  passiveChunks = [];
+  passiveSpeaking = false;
+  passiveSilenceFrames = 0;
+  passiveSpeechFrames = 0;
+  passiveLevelHistory = [];
+  passiveBaseline = 0;
+
+  passiveRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm', audioBitsPerSecond: 64000 });
+
+  passiveRecorder.ondataavailable = function(e) {
+    if (e.data.size > 0) passiveChunks.push(e.data);
+  };
+
+  passiveRecorder.onstop = function() {
+    // Build complete WebM blob from all chunks gathered so far
+    if (passiveChunks.length > 0 && passiveSpeaking) {
+      var blob = new Blob(passiveChunks, { type: 'audio/webm' });
+      passiveSpeaking = false;
+      if (blob.size > 1500) {
+        processPassiveUtterance(blob);
+      }
+    }
+    passiveChunks = [];
+    // Restart recorder for next utterance
+    if (currentMode === 'passive' && passiveStream) {
+      passiveRestartTimer = setTimeout(function() {
+        if (currentMode === 'passive' && passiveStream) {
+          startPassiveRecording(passiveStream);
+        }
+      }, 100);
+    }
+  };
+
+  passiveRecorder.start(250);
+  monitorPassiveAudio();
 }
+
 function monitorPassiveAudio() {
-  if (currentMode!=='passive'||passiveProcessing||!passiveAnalyser) return;
-  var d = new Uint8Array(passiveAnalyser.frequencyBinCount); passiveAnalyser.getByteFrequencyData(d);
-  var sum=0; for(var i=0;i<d.length;i++) sum+=d[i];
-  if (sum/d.length > SPEECH_VOLUME_THRESHOLD) { passiveSpeechDetected=true; passiveSilenceDuration=0; }
-  else if (passiveSpeechDetected) { passiveSilenceDuration+=100; if(passiveSilenceDuration>=PASSIVE_SILENCE_THRESHOLD_MS){ if(passiveRecorder&&passiveRecorder.state==='recording')passiveRecorder.stop(); var blob=new Blob(passiveChunks,{type:'audio/webm'}); if(blob.size>MIN_AUDIO_SIZE){processPassiveAudio(blob);}else{restartPassiveCapture();} return; } }
-  setTimeout(monitorPassiveAudio, 100);
+  if (currentMode !== 'passive' || !passiveAnalyser) return;
+
+  var d = new Uint8Array(passiveAnalyser.frequencyBinCount);
+  passiveAnalyser.getByteFrequencyData(d);
+
+  // Speech-band RMS level (90Hz - 2kHz)
+  var sum = 0, count = 0;
+  for (var i = 2; i < Math.min(40, d.length); i++) {
+    sum += d[i] * d[i];
+    count++;
+  }
+  var level = Math.sqrt(sum / count);
+
+  passiveLevelHistory.push(level);
+  if (passiveLevelHistory.length > 80) passiveLevelHistory.shift();
+
+  if (passiveLevelHistory.length >= 20) {
+    var sorted = passiveLevelHistory.slice().sort(function(a,b){return a-b;});
+    passiveBaseline = sorted[Math.floor(sorted.length * 0.25)];
+  }
+
+  var threshold = Math.max(8, passiveBaseline * 1.6);
+  var isSpeechFrame = level > threshold;
+
+  if (isSpeechFrame) {
+    passiveSpeechFrames++;
+    passiveSilenceFrames = 0;
+
+    if (!passiveSpeaking && passiveSpeechFrames >= 3) {
+      passiveSpeaking = true;
+      setStatus('🎤 Hearing speech...');
+    }
+  } else {
+    passiveSilenceFrames++;
+    passiveSpeechFrames = Math.max(0, passiveSpeechFrames - 1);
+
+    // 800ms of silence after speech → end of utterance
+    if (passiveSpeaking && passiveSilenceFrames >= 16) {
+      // Stop recorder — onstop will build blob and restart
+      if (passiveRecorder && passiveRecorder.state === 'recording') {
+        passiveRecorder.stop();
+      }
+      return; // monitor will resume after recorder restart
+    }
+  }
+
+  passiveMonitorTimer = setTimeout(monitorPassiveAudio, 50);
 }
-async function processPassiveAudio(blob) {
-  passiveProcessing=true; setStatus('Transcribing...');
-  try { var b64=await blobToBase64(blob); var r=await ipcRenderer.invoke('transcribe-audio',{apiKey:apiKey,audioData:b64});
-    if(r.text&&r.text.trim().length>3){ var t=r.text.trim(); document.getElementById('transcript-text').textContent=t;document.getElementById('transcript-box').classList.add('visible');await askQuestion(t);setTimeout(function(){document.getElementById('transcript-box').classList.remove('visible');},10000); }else{setStatus('Passive listening...');}
-  }catch(e){setStatus('Passive listening...');}
-  passiveProcessing=false; restartPassiveCapture();
+
+async function processPassiveUtterance(blob) {
+  if (passiveActiveTranscriptions >= 2) return;
+  passiveActiveTranscriptions++;
+
+  setStatus('🎙️ Transcribing... (listening continues)');
+
+  try {
+    var b64 = await blobToBase64(blob);
+    var r = await ipcRenderer.invoke('transcribe-audio', { apiKey: apiKey, audioData: b64 });
+
+    if (r.error) {
+      setStatus('Transcription error: ' + (r.error.message || 'unknown'));
+      passiveActiveTranscriptions--;
+      return;
+    }
+
+    if (r.text && r.text.trim().length > 2) {
+      var t = r.text.trim();
+      var lower = t.toLowerCase().replace(/[.!?]/g, '').trim();
+      // Filter Whisper hallucinations on silence
+      if (lower === 'you' || lower === 'thank you' || lower === 'thanks for watching' || lower === '' || lower === 'thank you for watching') {
+        if (currentMode === 'passive') setStatus('🎤 Listening...');
+        passiveActiveTranscriptions--;
+        return;
+      }
+
+      document.getElementById('transcript-text').textContent = t;
+      document.getElementById('transcript-box').classList.add('visible');
+      await askQuestion(t);
+      setTimeout(function() {
+        document.getElementById('transcript-box').classList.remove('visible');
+      }, 10000);
+    } else {
+      if (currentMode === 'passive') setStatus('🎤 Listening...');
+    }
+  } catch (e) {
+    if (currentMode === 'passive') setStatus('🎤 Listening...');
+  }
+
+  passiveActiveTranscriptions--;
 }
-function restartPassiveCapture(){if(currentMode==='passive'&&passiveStream){passiveChunks=[];passiveSilenceDuration=0;passiveSpeechDetected=false;setTimeout(function(){if(currentMode==='passive'&&!passiveProcessing&&passiveStream)startPassiveRecording(passiveStream);},300);}}
-function stopPassiveMode(){if(passiveRecorder&&passiveRecorder.state!=='inactive')passiveRecorder.stop();if(passiveStream){passiveStream.getTracks().forEach(function(t){t.stop();});passiveStream=null;}if(passiveAudioContext){passiveAudioContext.close();passiveAudioContext=null;}passiveAnalyser=null;passiveProcessing=false;document.getElementById('status-dot').classList.remove('passive');}
+
+function stopPassiveMode() {
+  if (passiveMonitorTimer) { clearTimeout(passiveMonitorTimer); passiveMonitorTimer = null; }
+  if (passiveRestartTimer) { clearTimeout(passiveRestartTimer); passiveRestartTimer = null; }
+  if (passiveRecorder && passiveRecorder.state !== 'inactive') {
+    try { passiveRecorder.stop(); } catch(e) {}
+  }
+  if (passiveStream) { passiveStream.getTracks().forEach(function(t){t.stop();}); passiveStream = null; }
+  if (passiveAudioContext) { try { passiveAudioContext.close(); } catch(e){} passiveAudioContext = null; }
+  passiveAnalyser = null;
+  passiveProcessing = false;
+  passiveSpeaking = false;
+  passiveActiveTranscriptions = 0;
+  passiveChunks = [];
+  passiveLevelHistory = [];
+  document.getElementById('status-dot').classList.remove('passive');
+}
 function blobToBase64(blob){return new Promise(function(resolve){var r=new FileReader();r.onloadend=function(){resolve(r.result.split(',')[1]);};r.readAsDataURL(blob);});}
 
 // ===== MANUAL MODE =====

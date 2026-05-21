@@ -407,7 +407,7 @@ ipcMain.handle('transcribe-audio', async (event, { apiKey, audioData }) => {
         '-X', 'POST',
         '-H', `Authorization: Bearer ${apiKey}`,
         '-F', `file=@${tempPath}`,
-        '-F', 'model=whisper-large-v3-turbo',
+        '-F', 'model=whisper-large-v3',
         '-F', 'response_format=json',
         '-F', 'language=en'
       ]);
