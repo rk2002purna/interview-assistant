@@ -243,8 +243,203 @@ ipcMain.handle('call-deepseek-api', async (event, { apiKey, model, messages, sys
   });
 });
 
+// Helper: convert OpenAI-style messages to Gemini "contents" format
+function messagesToGeminiContents(messages) {
+  const contents = [];
+  for (const m of messages) {
+    if (!m || !m.content) continue;
+    // Gemini uses 'user' and 'model' roles (not 'assistant')
+    const role = m.role === 'assistant' ? 'model' : 'user';
+    let parts;
+    if (typeof m.content === 'string') {
+      parts = [{ text: m.content }];
+    } else if (Array.isArray(m.content)) {
+      // Multimodal content array (text + images)
+      parts = m.content.map(p => {
+        if (p.type === 'text') return { text: p.text };
+        if (p.type === 'image_url' && p.image_url && p.image_url.url) {
+          // Convert "data:image/jpeg;base64,XXX" to inline_data
+          const match = /^data:([^;]+);base64,(.+)$/.exec(p.image_url.url);
+          if (match) {
+            return { inline_data: { mime_type: match[1], data: match[2] } };
+          }
+        }
+        return { text: '' };
+      }).filter(p => p);
+    } else {
+      parts = [{ text: String(m.content) }];
+    }
+    contents.push({ role, parts });
+  }
+  return contents;
+}
+
+ipcMain.handle('call-gemini-api', async (event, { apiKey, model, messages, systemPrompt }) => {
+  const requestBody = {
+    contents: messagesToGeminiContents(messages),
+    generationConfig: {
+      temperature: 0.7,
+      maxOutputTokens: 1024
+    }
+  };
+  if (systemPrompt) {
+    requestBody.systemInstruction = { parts: [{ text: systemPrompt }] };
+  }
+
+  const body = JSON.stringify(requestBody);
+  const bodyBuffer = Buffer.from(body);
+
+  return new Promise((resolve) => {
+    const options = {
+      hostname: 'generativelanguage.googleapis.com',
+      port: 443,
+      path: `/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-goog-api-key': apiKey,
+        'Content-Length': bodyBuffer.length
+      }
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          if (json.error) {
+            resolve({ error: { message: 'Gemini ' + (res.statusCode || '?') + ': ' + (json.error.message || JSON.stringify(json.error)) } });
+          } else if (json.candidates && json.candidates[0] && json.candidates[0].content && json.candidates[0].content.parts) {
+            const text = json.candidates[0].content.parts.map(p => p.text || '').join('');
+            resolve({ content: [{ text: text }] });
+          } else if (json.promptFeedback && json.promptFeedback.blockReason) {
+            resolve({ error: { message: 'Blocked by Gemini: ' + json.promptFeedback.blockReason } });
+          } else {
+            resolve({ error: { message: 'Gemini ' + (res.statusCode || '?') + ' unexpected response: ' + data.substring(0, 300) } });
+          }
+        } catch (e) {
+          resolve({ error: { message: 'Gemini ' + (res.statusCode || '?') + ' parse error: ' + data.substring(0, 300) } });
+        }
+      });
+    });
+
+    req.on('error', (e) => {
+      resolve({ error: { message: 'Network error: ' + e.message } });
+    });
+
+    req.setTimeout(30000, () => {
+      req.destroy();
+      resolve({ error: { message: 'Request timed out' } });
+    });
+
+    req.write(bodyBuffer);
+    req.end();
+  });
+});
+
 // Streaming AI handler - emits tokens to renderer as they arrive
 ipcMain.handle('call-ai-stream', async (event, { provider, apiKey, model, messages, systemPrompt, streamId }) => {
+  const sender = event.sender;
+
+  // Gemini has its own streaming format
+  if (provider === 'gemini') {
+    const requestBody = {
+      contents: messagesToGeminiContents(messages),
+      generationConfig: { temperature: 0.7, maxOutputTokens: 1024 }
+    };
+    if (systemPrompt) {
+      requestBody.systemInstruction = { parts: [{ text: systemPrompt }] };
+    }
+
+    const body = JSON.stringify(requestBody);
+    const bodyBuffer = Buffer.from(body);
+
+    return new Promise((resolve) => {
+      const options = {
+        hostname: 'generativelanguage.googleapis.com',
+        port: 443,
+        path: `/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-goog-api-key': apiKey,
+          'Content-Length': bodyBuffer.length
+        }
+      };
+
+      const req = https.request(options, (res) => {
+        let buffer = '';
+        let fullText = '';
+        let errorMsg = null;
+        let rawData = ''; // accumulate raw response for error reporting
+
+        res.on('data', chunk => {
+          const text = chunk.toString('utf8');
+          rawData += text;
+          buffer += text;
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || !trimmed.startsWith('data:')) continue;
+            const data = trimmed.slice(5).trim();
+            if (!data) continue;
+            try {
+              const json = JSON.parse(data);
+              if (json.error) {
+                errorMsg = json.error.message || JSON.stringify(json.error);
+                continue;
+              }
+              if (json.candidates && json.candidates[0] && json.candidates[0].content && json.candidates[0].content.parts) {
+                for (const part of json.candidates[0].content.parts) {
+                  if (part.text) {
+                    fullText += part.text;
+                    sender.send('ai-stream-chunk', { streamId: streamId, delta: part.text });
+                  }
+                }
+              }
+            } catch (e) {
+              // ignore parse errors on partial chunks
+            }
+          }
+        });
+
+        res.on('end', () => {
+          if (errorMsg) {
+            resolve({ error: { message: 'Gemini ' + (res.statusCode || '?') + ': ' + errorMsg } });
+          } else if (res.statusCode && res.statusCode >= 400) {
+            // Non-200 status with no streamed error — try parsing raw body
+            let parsedErr = rawData.substring(0, 300);
+            try {
+              const json = JSON.parse(rawData);
+              if (json.error && json.error.message) parsedErr = json.error.message;
+            } catch(e) {}
+            resolve({ error: { message: 'Gemini ' + res.statusCode + ': ' + parsedErr } });
+          } else if (!fullText) {
+            resolve({ error: { message: 'Gemini returned empty response: ' + rawData.substring(0, 300) } });
+          } else {
+            resolve({ content: [{ text: fullText }] });
+          }
+        });
+      });
+
+      req.on('error', (e) => {
+        resolve({ error: { message: 'Network error: ' + e.message } });
+      });
+
+      req.setTimeout(30000, () => {
+        req.destroy();
+        resolve({ error: { message: 'Request timed out' } });
+      });
+
+      req.write(bodyBuffer);
+      req.end();
+    });
+  }
+
+  // Groq + DeepSeek (OpenAI-compatible streaming)
   const allMessages = [];
   if (systemPrompt) {
     allMessages.push({ role: 'system', content: systemPrompt });
@@ -265,7 +460,6 @@ ipcMain.handle('call-ai-stream', async (event, { provider, apiKey, model, messag
   const isDeepseek = provider === 'deepseek';
   const hostname = isDeepseek ? 'api.deepseek.com' : 'api.groq.com';
   const path = isDeepseek ? '/chat/completions' : '/openai/v1/chat/completions';
-  const sender = event.sender;
 
   return new Promise((resolve) => {
     const options = {
@@ -409,7 +603,9 @@ ipcMain.handle('transcribe-audio', async (event, { apiKey, audioData }) => {
         '-F', `file=@${tempPath}`,
         '-F', 'model=whisper-large-v3',
         '-F', 'response_format=json',
-        '-F', 'language=en'
+        '-F', 'language=en',
+        '-F', 'temperature=0',
+        '-F', 'prompt=Technical interview question about software engineering, coding, or behavioral topics.'
       ]);
 
       let data = '';
