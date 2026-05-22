@@ -95,6 +95,7 @@
     <select id="text-primary-provider" onchange="updateModelDropdown('text-primary')">
       <option value="gemini">🟢 Gemini</option>
       <option value="groq">🟠 Groq</option>
+      <option value="cerebras">🟣 Cerebras</option>
       <option value="deepseek">🔵 DeepSeek</option>
     </select>
     <br/>
@@ -107,6 +108,7 @@
       <option value="">— None —</option>
       <option value="gemini">🟢 Gemini</option>
       <option value="groq">🟠 Groq</option>
+      <option value="cerebras">🟣 Cerebras</option>
       <option value="deepseek">🔵 DeepSeek</option>
     </select>
     <br/>
@@ -136,7 +138,7 @@
     <br/>
     <label>Fallback Model</label>
     <select id="vision-fallback-model"></select>
-    <p class="hint">DeepSeek doesn't support vision. Use Gemini or Groq for screen analysis.</p>
+    <p class="hint">DeepSeek and Cerebras don't support vision. Use Gemini or Groq for screen analysis.</p>
   </div>
 
   <div class="section" id="gemini-section">
@@ -163,6 +165,15 @@
     <input type="password" id="deepseek-api-key" placeholder="sk-..." />
     <p class="hint">
       Get your key at <a href="#" onclick="openExternal('https://platform.deepseek.com')">platform.deepseek.com</a>
+    </p>
+  </div>
+
+  <div class="section" id="cerebras-section">
+    <h2>🟣 Cerebras API Key</h2>
+    <label>Cerebras API Key — fastest text inference (stored locally on your machine only)</label>
+    <input type="password" id="cerebras-api-key" placeholder="csk-..." />
+    <p class="hint">
+      Get a free key at <a href="#" onclick="openExternal('https://cloud.cerebras.ai')">cloud.cerebras.ai</a> — text-only (no vision).
     </p>
   </div>
 
@@ -233,6 +244,12 @@
         { id: 'deepseek-reasoner', label: '🧠 deepseek-reasoner (R1)' }
       ],
       vision: []
+    },
+    cerebras: {
+      text: [
+        { id: 'gpt-oss-120b', label: '⚡ gpt-oss-120b — Cerebras (ultra-fast)' }
+      ],
+      vision: []
     }
   };
 
@@ -280,6 +297,7 @@
     if (config.apiKey) document.getElementById('api-key').value = config.apiKey;
     if (config.geminiApiKey) document.getElementById('gemini-api-key').value = config.geminiApiKey;
     if (config.deepseekApiKey) document.getElementById('deepseek-api-key').value = config.deepseekApiKey;
+    if (config.cerebrasApiKey) document.getElementById('cerebras-api-key').value = config.cerebrasApiKey;
 
     // Other config
     if (config.resumeContext) document.getElementById('resume-context').value = config.resumeContext;
@@ -333,6 +351,7 @@
       apiKey: document.getElementById('api-key').value.trim(),
       geminiApiKey: document.getElementById('gemini-api-key').value.trim(),
       deepseekApiKey: document.getElementById('deepseek-api-key').value.trim(),
+      cerebrasApiKey: document.getElementById('cerebras-api-key').value.trim(),
       resumeContext: document.getElementById('resume-context').value.trim(),
       jobContext: document.getElementById('job-context').value.trim(),
       routing: routing

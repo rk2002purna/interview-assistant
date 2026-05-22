@@ -117,7 +117,7 @@
 const { ipcRenderer } = require('electron');
 
 // ===== STATE =====
-let apiKey = '', deepseekApiKey = '', geminiApiKey = '';
+let apiKey = '', deepseekApiKey = '', geminiApiKey = '', cerebrasApiKey = '';
 let resumeContext = '', jobContext = '';
 // Routing config - holds primary + fallback for text and vision
 let routing = {
@@ -146,6 +146,7 @@ async function reloadConfig() {
   apiKey = config.apiKey || '';
   deepseekApiKey = config.deepseekApiKey || '';
   geminiApiKey = config.geminiApiKey || '';
+  cerebrasApiKey = config.cerebrasApiKey || '';
   resumeContext = config.resumeContext || '';
   jobContext = config.jobContext || '';
   if (config.routing) {
@@ -179,6 +180,7 @@ function buildSystemPrompt(basePrompt) {
 function getKeyForProvider(provider) {
   if (provider === 'gemini') return geminiApiKey;
   if (provider === 'deepseek') return deepseekApiKey;
+  if (provider === 'cerebras') return cerebrasApiKey;
   if (provider === 'groq') return apiKey;
   return '';
 }

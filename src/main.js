@@ -461,9 +461,19 @@ ipcMain.handle('call-ai-stream', async (event, { provider, apiKey, model, messag
   const body = JSON.stringify(requestBody);
   const bodyBuffer = Buffer.from(body);
 
-  const isDeepseek = provider === 'deepseek';
-  const hostname = isDeepseek ? 'api.deepseek.com' : 'api.groq.com';
-  const path = isDeepseek ? '/chat/completions' : '/openai/v1/chat/completions';
+  // OpenAI-compatible providers: Groq, DeepSeek, Cerebras
+  let hostname, path;
+  if (provider === 'deepseek') {
+    hostname = 'api.deepseek.com';
+    path = '/chat/completions';
+  } else if (provider === 'cerebras') {
+    hostname = 'api.cerebras.ai';
+    path = '/v1/chat/completions';
+  } else {
+    // Default to Groq
+    hostname = 'api.groq.com';
+    path = '/openai/v1/chat/completions';
+  }
 
   return new Promise((resolve) => {
     const options = {
