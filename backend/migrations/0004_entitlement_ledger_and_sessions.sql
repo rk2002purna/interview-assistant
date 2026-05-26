@@ -123,7 +123,13 @@ CREATE INDEX entitlement_ledger_razorpay_payment_idx
 -- This preserves the ability of migration / superuser roles to manage the
 -- table, while preventing any application code path from mutating committed
 -- ledger rows.
-REVOKE UPDATE, DELETE ON entitlement_ledger FROM app;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app') THEN
+        EXECUTE 'REVOKE UPDATE, DELETE ON entitlement_ledger FROM app';
+    END IF;
+END
+$$;
 
 -- A trigger guards against direct UPDATE / DELETE under any role that still
 -- holds those privileges (e.g. a future role that forgets the REVOKE).

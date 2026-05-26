@@ -188,7 +188,8 @@ export async function insertIdempotencyCache(
   ]);
 
   // If a row was returned, the insert succeeded (xmax = 0 means fresh tuple)
-  if (result.rows.length > 0 && result.rows[0].inserted) {
+  const firstRow = result.rows[0];
+  if (result.rows.length > 0 && firstRow && firstRow.inserted) {
     return { inserted: true };
   }
 

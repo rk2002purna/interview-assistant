@@ -51,7 +51,7 @@ const app = buildApp({
   pool,
   ...(razorpayClient ? { razorpayClient } : {}),
   ...(razorpayKeyId ? { razorpayKeyId } : {}),
-  razorpayWebhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET,
+  ...(process.env.RAZORPAY_WEBHOOK_SECRET ? { razorpayWebhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET } : {}),
   storageGate,
   ...(emailSenders ? { sendVerificationEmail: emailSenders.sendVerificationEmail } : {}),
   ...(emailSenders ? { sendPasswordResetEmail: emailSenders.sendPasswordResetEmail } : {}),
