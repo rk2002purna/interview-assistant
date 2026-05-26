@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { isAuthSession, isAdminSession, getCurrentUser, getDisplayName } from '../api/client';
+import { isAdminSession, getCurrentUser, getDisplayName } from '../api/client';
 import { logout } from '../api/client';
 
 const navLinks = [
