@@ -36,7 +36,8 @@ export default function LoginPage() {
     setResending(true);
     setResendSent(false);
     try {
-      await fetch('/api/auth/resend-verification', {
+      const apiBase = import.meta.env.VITE_API_BASE_URL ?? '/api';
+      await fetch(`${apiBase}/auth/resend-verification`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
