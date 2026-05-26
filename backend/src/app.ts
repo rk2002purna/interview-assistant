@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { cors } from 'hono/cors';
 import type { Pool } from 'pg';
 import { buildAdminAuditLogRouter } from './admin/audit-log-routes.js';
 import { buildAdminPacksRouter } from './admin/packs-routes.js';
@@ -72,6 +73,27 @@ export interface BuildAppDeps {
  */
 export function buildApp(deps: BuildAppDeps = {}): Hono {
   const app = new Hono();
+
+  // CORS — allow requests from web app and admin dashboard
+  app.use('*', cors({
+    origin: (origin) => {
+      // Allow any origin in development, or specific domains in production
+      const allowed = [
+        'http://localhost:5173',
+        'http://localhost:3000',
+        process.env.WEB_APP_URL,
+        process.env.ADMIN_DASHBOARD_URL,
+      ].filter(Boolean) as string[];
+      if (!origin || allowed.some(u => origin.startsWith(u))) return origin;
+      // Also allow any Vercel preview deployments
+      if (origin.includes('.vercel.app')) return origin;
+      return allowed[0] ?? '*';
+    },
+    allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowHeaders: ['Content-Type', 'Authorization', 'X-Client-Id', 'X-Build-Version', 'Idempotency-Key'],
+    credentials: true,
+    maxAge: 86400,
+  }));
 
   // Liveness probe used by hosting platforms and tests.
   app.get('/health', (c) => c.json({ status: 'ok' }));
