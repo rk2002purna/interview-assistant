@@ -16,7 +16,10 @@ const port = Number.parseInt(process.env.PORT ?? '8787', 10);
 // Resolve hosting mode and select the appropriate database URL.
 const { mode, databaseUrl } = loadModeConfig();
 
-const pool = new Pool({ connectionString: databaseUrl });
+const pool = new Pool({
+  connectionString: databaseUrl,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined,
+});
 
 // Storage quota gate for blob persistence (R15.3)
 const storageGate = new StorageQuotaGate({
