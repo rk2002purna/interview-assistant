@@ -1,0 +1,46 @@
+{
+  "name": "interview-assistant-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Backend API for the UpNod credits and subscription system",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/server.js",
+    "dev": "tsx watch src/server.ts",
+    "test": "vitest run",
+    "test:unit": "vitest run --dir tests/unit",
+    "test:integration": "vitest run --dir tests/integration",
+    "test:e2e": "vitest run --dir tests/e2e"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "argon2": "^0.41.1",
+    "dotenv": "^17.4.2",
+    "drizzle-orm": "^0.36.4",
+    "hono": "^4.6.13",
+    "jose": "^5.9.6",
+    "pg": "^8.13.1",
+    "resend": "^6.12.3",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "^10.16.0",
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "@types/supertest": "^6.0.2",
+    "fast-check": "^3.23.2",
+    "nock": "^13.5.6",
+    "pg-mem": "^3.0.4",
+    "supertest": "^7.0.0",
+    "testcontainers": "^10.16.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=20.10.0"
+  }
+}

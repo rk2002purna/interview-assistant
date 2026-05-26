@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Interview Assistant</title>
+  <title>UpNod</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: transparent; color: #e2e8f0; user-select: none; height: 100vh; overflow: hidden; }
@@ -15,7 +15,35 @@
     .btn-close { background: #fc5c65; color: #7a0000; }
     .btn-min { background: #fed330; color: #7a5500; }
     .btn-set { background: #45aaf2; color: #003060; }
+    /* Session badge */
+    #session-badge { padding: 4px 14px; display: flex; align-items: center; gap: 8px; background: rgba(72,187,120,0.1); border-bottom: 1px solid rgba(72,187,120,0.2); flex-shrink: 0; font-size: 11px; }
+    #session-badge.hidden { display: none; }
+    #session-badge.warning { background: rgba(237,137,54,0.15); border-bottom-color: rgba(237,137,54,0.3); }
+    #session-badge .badge-dot { width: 6px; height: 6px; border-radius: 50%; background: #48bb78; animation: pulse 2s infinite; }
+    #session-badge.warning .badge-dot { background: #ed8936; animation: pulse 0.8s infinite; }
+    #session-timer { color: #68d391; font-weight: 600; }
+    #session-badge.warning #session-timer { color: #ed8936; }
+    #end-session-btn { margin-left: auto; background: rgba(252,92,101,0.15); border: 1px solid rgba(252,92,101,0.3); color: #fc5c65; padding: 2px 8px; border-radius: 10px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s; }
+    #end-session-btn:hover { background: rgba(252,92,101,0.25); }
+    /* Session CTA (replaces mode tabs when no session) */
+    #session-cta { padding: 14px; display: flex; flex-direction: column; align-items: center; gap: 10px; background: rgba(0,0,0,0.25); border-bottom: 1px solid rgba(99,179,237,0.1); flex-shrink: 0; }
+    #session-cta.hidden { display: none; }
+    #start-session-btn { padding: 10px 24px; background: linear-gradient(135deg, #48bb78, #38a169); border: none; color: white; border-radius: 10px; cursor: pointer; font-size: 13px; font-weight: 700; transition: all 0.2s; }
+    #start-session-btn:hover { opacity: 0.9; transform: scale(1.02); }
+    #start-session-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+    #session-cta .cta-subtitle { font-size: 10px; color: #a0aec0; }
+    /* Pack cards */
+    #packs-container { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; padding: 0 4px; }
+    #packs-container.hidden { display: none; }
+    .pack-card { background: rgba(99,179,237,0.06); border: 1px solid rgba(99,179,237,0.15); border-radius: 8px; padding: 8px 10px; cursor: pointer; text-align: center; min-width: 90px; transition: all 0.2s; }
+    .pack-card:hover { border-color: rgba(99,179,237,0.4); background: rgba(99,179,237,0.12); }
+    .pack-card .pack-name { font-size: 10px; font-weight: 700; color: #e2e8f0; margin-bottom: 3px; }
+    .pack-card .pack-sessions { font-size: 9px; color: #a0aec0; margin-bottom: 4px; }
+    .pack-card .pack-mrp { font-size: 9px; color: #718096; text-decoration: line-through; }
+    .pack-card .pack-price { font-size: 11px; font-weight: 700; color: #68d391; }
+    .pack-card .pack-offer-label { font-size: 8px; color: #f6ad55; font-weight: 600; margin-top: 2px; }
     #mode-toggle-bar { padding: 6px 14px; display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.25); border-bottom: 1px solid rgba(99,179,237,0.1); flex-shrink: 0; }
+    #mode-toggle-bar.hidden { display: none; }
     .mode-btn { padding: 4px 10px; border-radius: 14px; border: 1px solid rgba(99,179,237,0.2); background: rgba(99,179,237,0.08); color: #a0aec0; font-size: 10px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
     .mode-btn.active { background: rgba(72,187,120,0.25); border-color: rgba(72,187,120,0.5); color: #68d391; }
     .mode-btn:hover { opacity: 0.85; }
@@ -56,8 +84,6 @@
     #manual-input::placeholder { color: #4a5568; }
     #ask-btn { background: linear-gradient(135deg, #4299e1, #3182ce); border: none; color: white; padding: 0 14px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; transition: opacity 0.2s; align-self: flex-end; height: 34px; }
     #ask-btn:hover { opacity: 0.85; }
-    #api-warning { margin: 10px 14px; background: rgba(237,137,54,0.15); border: 1px solid rgba(237,137,54,0.3); border-radius: 8px; padding: 10px 12px; font-size: 11px; color: #fbd38d; display: none; }
-    #api-warning a { color: #f6ad55; cursor: pointer; text-decoration: underline; }
     ::-webkit-scrollbar { width: 4px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: rgba(99,179,237,0.2); border-radius: 2px; }
@@ -72,16 +98,96 @@
     .chat-empty { padding: 20px; text-align: center; color: #4a5568; font-size: 11px; }
     .hide-in-passive { transition: opacity 0.3s; }
     .passive-active .hide-in-passive, .screen-active .hide-in-passive { opacity: 0.3; pointer-events: none; max-height: 0; overflow: hidden; padding: 0; }
+    /* Extension pop-up */
+    #extend-popup { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; backdrop-filter: blur(2px); }
+    #extend-popup.visible { display: flex; }
+    #extend-popup .popup-card { background: rgba(22,27,34,0.97); border: 1px solid rgba(99,179,237,0.25); border-radius: 14px; padding: 28px 24px; text-align: center; max-width: 320px; width: 90%; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
+    #extend-popup .popup-title { font-size: 15px; font-weight: 700; color: #f1f5f9; margin-bottom: 8px; }
+    #extend-popup .popup-body { font-size: 12px; color: #94a3b8; line-height: 1.6; margin-bottom: 20px; }
+    #extend-popup .popup-body strong { color: #ed8936; }
+    #extend-popup .popup-actions { display: flex; gap: 10px; justify-content: center; }
+    #extend-popup .btn-extend { padding: 8px 20px; background: linear-gradient(135deg, #48bb78, #38a169); border: none; color: white; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 700; transition: all 0.2s; }
+    #extend-popup .btn-extend:hover { opacity: 0.9; }
+    #extend-popup .btn-extend:disabled { opacity: 0.5; cursor: not-allowed; }
+    #extend-popup .btn-dismiss { padding: 8px 16px; background: rgba(252,92,101,0.15); border: 1px solid rgba(252,92,101,0.3); color: #fc5c65; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s; }
+    #extend-popup .btn-dismiss:hover { background: rgba(252,92,101,0.25); }
+    /* Mini-mode: only show the yellow restore button */
+    #mini-restore-btn {
+      display: none;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      border: none;
+      background: #fed330;
+      color: #7a5500;
+      font-size: 18px;
+      cursor: pointer;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.15s, box-shadow 0.15s;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    }
+    #mini-restore-btn:hover { transform: scale(1.1); box-shadow: 0 4px 16px rgba(254,211,48,0.5); }
+    body.mini-mode #app { display: none !important; }
+    body.mini-mode #mini-restore-btn { display: flex; }
+    body.mini-mode { background: transparent; overflow: hidden; }
+    /* On-Camera mode: minimal answer-only UI pinned below webcam */
+    body.on-camera-mode { background: transparent; overflow: hidden; }
+    body.on-camera-mode #app { border-radius: 0 0 10px 10px; height: auto; max-height: 100vh; }
+    body.on-camera-mode #titlebar { padding: 4px 8px; }
+    body.on-camera-mode #session-badge,
+    body.on-camera-mode #session-cta,
+    body.on-camera-mode #mode-toggle-bar,
+    body.on-camera-mode #statusbar,
+    body.on-camera-mode #passive-indicator,
+    body.on-camera-mode #screen-indicator,
+    body.on-camera-mode #chat-history-panel,
+    body.on-camera-mode #transcript-box,
+    body.on-camera-mode #input-area,
+    body.on-camera-mode #extend-popup,
+    body.on-camera-mode #packs-container { display: none !important; }
+    body.on-camera-mode #answer-wrap { flex: none; overflow-y: auto; padding: 8px 12px; max-height: calc(100vh - 30px); }
+    body.on-camera-mode #answer-text { font-size: 14px; line-height: 1.6; }
+    body.on-camera-mode .win-btns { gap: 4px; }
+    body.on-camera-mode .win-btn { width: 14px; height: 14px; font-size: 7px; }
   </style>
 </head>
 <body>
+<button id="mini-restore-btn" onclick="restoreWindow()" title="Restore">&#9744;</button>
 <div id="app">
   <div id="titlebar"><div class="win-btns">
     <button class="win-btn btn-set" onclick="openSettings()" title="Settings">&#9881;</button>
     <button class="win-btn btn-min" onclick="minimize()" title="Minimize">&minus;</button>
     <button class="win-btn btn-close" onclick="closeApp()" title="Close">&#10005;</button>
   </div></div>
-  <div id="mode-toggle-bar">
+  <!-- Session badge: visible when session is active -->
+  <div id="session-badge" class="hidden">
+    <div class="badge-dot"></div>
+    <span id="session-timer">90:00</span>
+    <button id="end-session-btn" onclick="endSession()">End Session</button>
+  </div>
+  <!-- Session CTA: visible when no session is active -->
+  <div id="session-cta" class="hidden">
+    <button id="start-session-btn" onclick="startSession()">&#9654; Start Interview Session</button>
+    <div class="cta-subtitle">Start a 90-minute session to use AI modes</div>
+    <div id="packs-container" class="hidden"></div>
+  </div>
+  <!-- Session extension pop-up: shown when paid session is about to expire -->
+  <div id="extend-popup">
+    <div class="popup-card">
+      <div class="popup-title">Session Ending Soon</div>
+      <div class="popup-body" id="extend-popup-body">
+        Your session will expire in <strong id="extend-countdown">5:00</strong>.
+        You have extra session credits — extend by 90 minutes?
+      </div>
+      <div class="popup-actions">
+        <button class="btn-extend" id="btn-extend-session" onclick="extendSession()">Extend (+90 min)</button>
+        <button class="btn-dismiss" onclick="dismissExtendPopup()">Dismiss</button>
+      </div>
+    </div>
+  </div>
+  <!-- Mode toggle bar: visible only when session is active -->
+  <div id="mode-toggle-bar" class="hidden">
     <button class="mode-btn active" id="manual-mode-btn" onclick="switchMode('manual')">&#127908; Manual</button>
     <button class="mode-btn" id="passive-mode-btn" onclick="switchMode('passive')">&#128065; Passive</button>
     <button class="mode-btn" id="screen-mode-btn" onclick="switchMode('screen')">&#128421; Screen Analyzer</button>
@@ -104,7 +210,6 @@
     <button id="clear-captures-btn" onclick="clearCaptures()" style="margin-top:6px; width:100%; padding:6px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); color:#a0aec0; border-radius:6px; cursor:pointer; font-size:11px;">🗑️ Clear captures</button>
   </div>
   <div id="chat-history-panel"><div id="chat-history-list"></div></div>
-  <div id="api-warning">No API key set. <a onclick="openSettings()">Add your API key in Settings</a></div>
   <div id="transcript-box"><div class="label">Detected Question</div><div id="transcript-text"></div></div>
   <div id="answer-wrap"><div class="label">AI Answer</div><div id="answer-text">Select a mode to get started.</div></div>
   <div id="input-area" class="hide-in-passive">
@@ -134,11 +239,30 @@ let passiveLevelHistory = [], passiveSpeaking = false, passiveSilenceFrames = 0,
 let screenCaptureInterval = null, screenLastText = '', screenProcessing = false, screenStitcherBuffer = '', screenStitcherTimer = null, screenProcessedQuestions = [], screenCaptureIntervalMs = 4000;
 const SILENCE_THRESHOLD_MS = 2500, MIN_AUDIO_SIZE = 500, SPEECH_VOLUME_THRESHOLD = 25;
 
+// ===== SESSION STATE =====
+let sessionActive = false;
+let sessionTimerInterval = null;
+let sessionRemainingSeconds = 0;
+let sessionWarning = false;
+let sessionIsTrial = false;
+let extendPopupDismissed = false; // reset when session changes
+let extendPopupShown = false;
+const EXTEND_WARNING_SECONDS = 300; // show pop-up when 5 min remaining
+const FIRST_CHUNK_TIMEOUT_MS = 30000; // 30-second first-chunk timeout (Req 16.8)
+
 // ===== INIT =====
 async function init() {
   try { appPlatform = await ipcRenderer.invoke('get-platform'); } catch(e) {}
   await reloadConfig();
   loadChatHistory();
+  // Initialize session state from backend
+  await syncSessionState();
+  // Listen for session state changes from the session controller
+  if (window.interviewAssistantApi && window.interviewAssistantApi.session) {
+    window.interviewAssistantApi.session.onStateChanged(handleSessionStateChanged);
+  }
+  // Load packs for the CTA
+  loadPacks();
 }
 
 async function reloadConfig() {
@@ -157,9 +281,253 @@ async function reloadConfig() {
   }
   if (config.screenCaptureInterval) screenCaptureIntervalMs = Math.max(1000, Math.min(10000, config.screenCaptureInterval * 1000));
 
-  // Show warning if primary text provider has no key
-  var primaryKey = getKeyForProvider(routing.textPrimary.provider);
-  document.getElementById('api-warning').style.display = primaryKey ? 'none' : 'block';
+  // Apply display mode
+  var displayMode = config.displayMode || 'manual';
+  ipcRenderer.send('set-display-mode', displayMode);
+}
+
+// ===== SESSION MANAGEMENT =====
+async function syncSessionState() {
+  try {
+    if (window.interviewAssistantApi && window.interviewAssistantApi.session) {
+      var active = await window.interviewAssistantApi.session.getActive();
+      if (active) {
+        handleSessionStateChanged({
+          active: true,
+          session_id: active.session_id,
+          remaining_seconds: active.remaining_seconds,
+          warning: active.remaining_seconds <= 300,
+          is_trial: active.is_trial || false
+        });
+      } else {
+        handleSessionStateChanged({ active: false, session_id: null, remaining_seconds: 0, warning: false, is_trial: false });
+      }
+    }
+  } catch (e) {
+    // If session API not available, show CTA
+    handleSessionStateChanged({ active: false, session_id: null, remaining_seconds: 0, warning: false, is_trial: false });
+  }
+}
+
+function handleSessionStateChanged(state) {
+  var wasActive = sessionActive;
+  sessionActive = state.active;
+  sessionRemainingSeconds = state.remaining_seconds || 0;
+  sessionWarning = state.warning || false;
+  sessionIsTrial = state.is_trial || false;
+
+  // Reset dismiss flag when a new session starts
+  if (!wasActive && sessionActive) {
+    extendPopupDismissed = false;
+    extendPopupShown = false;
+  }
+
+  var badge = document.getElementById('session-badge');
+  var cta = document.getElementById('session-cta');
+  var modeBar = document.getElementById('mode-toggle-bar');
+
+  if (sessionActive) {
+    badge.classList.remove('hidden');
+    badge.classList.toggle('warning', sessionWarning);
+    cta.classList.add('hidden');
+    modeBar.classList.remove('hidden');
+    updateSessionTimer();
+
+    // Show extension pop-up for paid sessions when warning triggers
+    if (sessionWarning && !sessionIsTrial && !extendPopupDismissed && !extendPopupShown) {
+      showExtendPopup();
+    }
+  } else {
+    badge.classList.add('hidden');
+    cta.classList.remove('hidden');
+    modeBar.classList.add('hidden');
+    dismissExtendPopup();
+    // Stop any active modes when session ends
+    if (isListening) stopAllAudio();
+    if (passiveStream) stopPassiveMode();
+    if (screenCaptureInterval) stopScreenAnalyzer();
+  }
+}
+
+function updateSessionTimer() {
+  var mins = Math.floor(sessionRemainingSeconds / 60);
+  var secs = sessionRemainingSeconds % 60;
+  document.getElementById('session-timer').textContent =
+    String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+}
+
+async function startSession() {
+  var btn = document.getElementById('start-session-btn');
+  btn.disabled = true;
+  btn.textContent = 'Starting...';
+  try {
+    if (window.interviewAssistantApi && window.interviewAssistantApi.session) {
+      var result = await window.interviewAssistantApi.session.start();
+      if (result && result.error) {
+        if (result.error.code === 'no_sessions_remaining') {
+          // Show packs for purchase
+          document.getElementById('packs-container').classList.remove('hidden');
+          document.getElementById('answer-text').textContent = 'No sessions remaining. Purchase a pack to continue.';
+        } else {
+          document.getElementById('answer-text').textContent = 'Could not start session: ' + (result.error.message || result.error.code);
+        }
+      }
+    }
+  } catch (e) {
+    document.getElementById('answer-text').textContent = 'Error starting session: ' + e.message;
+  }
+  btn.disabled = false;
+  btn.innerHTML = '&#9654; Start Interview Session';
+}
+
+async function endSession() {
+  var btn = document.getElementById('end-session-btn');
+  btn.disabled = true;
+  btn.textContent = 'Ending...';
+  try {
+    if (window.interviewAssistantApi && window.interviewAssistantApi.session) {
+      await window.interviewAssistantApi.session.end();
+    }
+  } catch (e) {
+    document.getElementById('answer-text').textContent = 'Error ending session: ' + e.message;
+  }
+  btn.disabled = false;
+  btn.textContent = 'End Session';
+}
+
+// ===== SESSION EXTENSION POP-UP =====
+async function showExtendPopup() {
+  // Check if user has remaining sessions via entitlement
+  var hasCredits = false;
+  try {
+    if (window.interviewAssistantApi && window.interviewAssistantApi.entitlement) {
+      var ent = await window.interviewAssistantApi.entitlement.get();
+      if (ent && !ent.error) {
+        var count = ent.session_count !== undefined ? ent.session_count : (ent.resulting_session_count !== undefined ? ent.resulting_session_count : 0);
+        hasCredits = ent.lifetime || ent.lifetime_flag || Number(count) > 0;
+      }
+    }
+  } catch (e) {
+    // If we can't check entitlement, show the pop-up anyway and let extend fail gracefully
+    hasCredits = true;
+  }
+
+  if (!hasCredits) return; // No credits, don't show pop-up
+
+  extendPopupShown = true;
+  document.getElementById('extend-popup').classList.add('visible');
+  updateExtendCountdown();
+}
+
+function updateExtendCountdown() {
+  if (!extendPopupShown) return;
+  var mins = Math.floor(sessionRemainingSeconds / 60);
+  var secs = sessionRemainingSeconds % 60;
+  document.getElementById('extend-countdown').textContent =
+    String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+
+  if (sessionRemainingSeconds > 0 && extendPopupShown) {
+    setTimeout(updateExtendCountdown, 1000);
+  }
+}
+
+async function extendSession() {
+  var btn = document.getElementById('btn-extend-session');
+  btn.disabled = true;
+  btn.textContent = 'Extending...';
+
+  try {
+    if (window.interviewAssistantApi && window.interviewAssistantApi.session) {
+      var result = await window.interviewAssistantApi.session.extend();
+      if (result && result.error) {
+        document.getElementById('extend-popup-body').innerHTML =
+          'Could not extend: ' + (result.error.message || result.error.code);
+        btn.textContent = 'No Credits';
+        setTimeout(dismissExtendPopup, 3000);
+      } else {
+        // Success — pop-up will auto-dismiss on next state tick with updated timer
+        document.getElementById('extend-popup-body').innerHTML =
+          'Session extended! You now have <strong>90 more minutes</strong>.';
+        btn.style.display = 'none';
+        document.querySelector('#extend-popup .btn-dismiss').textContent = 'Close';
+        extendPopupDismissed = true;
+        setTimeout(dismissExtendPopup, 3000);
+      }
+    }
+  } catch (e) {
+    document.getElementById('extend-popup-body').innerHTML =
+      'Error: ' + e.message;
+    btn.disabled = false;
+    btn.textContent = 'Retry';
+  }
+}
+
+function dismissExtendPopup() {
+  extendPopupShown = false;
+  extendPopupDismissed = true;
+  document.getElementById('extend-popup').classList.remove('visible');
+  // Reset button state for next time
+  var btn = document.getElementById('btn-extend-session');
+  btn.disabled = false;
+  btn.textContent = 'Extend (+90 min)';
+  btn.style.display = '';
+  document.getElementById('extend-popup-body').innerHTML =
+    'Your session will expire in <strong id="extend-countdown">5:00</strong>.' +
+    ' You have extra session credits — extend by 90 minutes?';
+  document.querySelector('#extend-popup .btn-dismiss').textContent = 'Dismiss';
+}
+
+// ===== PACK RENDERING =====
+async function loadPacks() {
+  try {
+    if (window.interviewAssistantApi && window.interviewAssistantApi.purchase) {
+      var packs = await window.interviewAssistantApi.purchase.listPacks();
+      if (packs && !packs.error) {
+        renderPacks(packs);
+      }
+    }
+  } catch (e) { /* Packs will show on retry */ }
+}
+
+function renderPacks(packs) {
+  var container = document.getElementById('packs-container');
+  // Order: starter, pro, lifetime (Req 5.11)
+  var order = ['starter', 'pro', 'lifetime'];
+  var sorted = [];
+  for (var i = 0; i < order.length; i++) {
+    var found = null;
+    for (var j = 0; j < packs.length; j++) {
+      if (packs[j].slug === order[i]) { found = packs[j]; break; }
+    }
+    if (found) sorted.push(found);
+  }
+
+  var html = '';
+  for (var k = 0; k < sorted.length; k++) {
+    var pack = sorted[k];
+    var mrpFormatted = '\u20B9' + (pack.mrp / 100).toLocaleString('en-IN');
+    var effectiveFormatted = '\u20B9' + ((pack.effective_price || pack.mrp) / 100).toLocaleString('en-IN');
+    var hasDiscount = pack.effective_price && pack.effective_price < pack.mrp;
+    var sessions = pack.lifetime ? 'Unlimited' : (pack.session_count + ' sessions');
+
+    html += '<div class="pack-card" onclick="purchasePack(\'' + pack.slug + '\')">';
+    html += '<div class="pack-name">' + escapeHtml(pack.display_name || pack.slug) + '</div>';
+    html += '<div class="pack-sessions">' + sessions + '</div>';
+    if (hasDiscount) {
+      html += '<div class="pack-mrp">' + mrpFormatted + '</div>';
+      html += '<div class="pack-price">' + effectiveFormatted + '</div>';
+      html += '<div class="pack-offer-label">Welcome Offer</div>';
+    } else {
+      html += '<div class="pack-price">' + mrpFormatted + '</div>';
+    }
+    html += '</div>';
+  }
+  container.innerHTML = html;
+}
+
+async function purchasePack(slug) {
+  // Open the web app pricing page in the browser for UPI-based checkout
+  ipcRenderer.send('open-external-url', 'http://localhost:5173/pricing');
 }
 
 // Build a system prompt with optional resume/job context appended
@@ -187,6 +555,11 @@ function getKeyForProvider(provider) {
 
 // ===== MODE SWITCHING =====
 function switchMode(mode) {
+  // Block mode switching if no active session (Req 16.1)
+  if (!sessionActive) {
+    document.getElementById('answer-text').textContent = 'Start an Interview Session to use AI modes.';
+    return;
+  }
   if (isListening) stopAllAudio();
   if (passiveStream) stopPassiveMode();
   if (screenCaptureInterval) stopScreenAnalyzer();
@@ -294,14 +667,6 @@ async function captureScreenshot() {
 async function analyzeScreenNow() {
   if (screenAnalyzing || capturedScreenshots.length === 0) return;
 
-  // Check both vision providers' keys
-  var visionPrimaryKey = getKeyForProvider(routing.visionPrimary.provider);
-  var visionFallbackKey = routing.visionFallback && routing.visionFallback.provider ? getKeyForProvider(routing.visionFallback.provider) : '';
-  if (!visionPrimaryKey && !visionFallbackKey) {
-    document.getElementById('answer-text').textContent = 'No API key configured for vision. Add a key in Settings.';
-    return;
-  }
-
   screenAnalyzing = true;
   var analyzeBtn = document.getElementById('analyze-screen-btn');
   var captureBtn = document.getElementById('capture-screen-btn');
@@ -335,11 +700,21 @@ async function analyzeScreenNow() {
 
   var streamed = '';
   var firstChunk = true;
+  var visionTimedOut = false;
+  var visionFirstChunkTimer = null;
   try {
-    var data = await callAIStream(
+    var visionFirstChunkTimeout = new Promise(function(_, reject) {
+      visionFirstChunkTimer = setTimeout(function() {
+        visionTimedOut = true;
+        reject(new Error('__FIRST_CHUNK_TIMEOUT__'));
+      }, FIRST_CHUNK_TIMEOUT_MS);
+    });
+
+    var visionPromise = callAIStream(
       [{ role: 'user', content: content }],
       systemPrompt,
       function(delta) {
+        if (visionFirstChunkTimer) { clearTimeout(visionFirstChunkTimer); visionFirstChunkTimer = null; }
         if (firstChunk) { answerEl.innerHTML = ''; firstChunk = false; }
         streamed += delta;
         answerEl.innerHTML = renderAnswer(streamed);
@@ -347,8 +722,16 @@ async function analyzeScreenNow() {
       'vision'
     );
 
+    var data = await Promise.race([visionPromise, visionFirstChunkTimeout]);
+    if (visionFirstChunkTimer) { clearTimeout(visionFirstChunkTimer); visionFirstChunkTimer = null; }
+
     if (data.error) {
-      answerEl.textContent = 'Error: ' + data.error.message;
+      // Handle 402 errors: preserve conversation history (Req 16.6)
+      if (data.error.code === 'no_active_session' || data.error.status === 402) {
+        answerEl.innerHTML = '<div style="color:#f6ad55;">Session ended. Start a new session to continue.</div>';
+      } else {
+        answerEl.textContent = 'Error: ' + data.error.message;
+      }
     } else {
       var ans = (data.content && data.content[0] && data.content[0].text) || streamed;
       conversationHistory.push({ role: 'user', content: '[Screen analysis - ' + count + ' screenshot(s)]' });
@@ -358,7 +741,13 @@ async function analyzeScreenNow() {
       setStatus('Answer ready - capture more or clear for next question');
     }
   } catch (e) {
-    answerEl.textContent = 'Error: ' + e.message;
+    if (visionFirstChunkTimer) { clearTimeout(visionFirstChunkTimer); visionFirstChunkTimer = null; }
+    if (visionTimedOut || (e.message && e.message.indexOf('__FIRST_CHUNK_TIMEOUT__') !== -1)) {
+      // 30-second timeout: preserve conversation history (Req 16.8)
+      answerEl.textContent = 'Request timed out (no response within 30s). Conversation history preserved.';
+    } else {
+      answerEl.textContent = 'Error: ' + e.message;
+    }
     setStatus('Error');
   }
 
@@ -645,7 +1034,7 @@ async function processPassiveUtterance(blob) {
 
   try {
     var b64 = await blobToBase64(blob);
-    var r = await ipcRenderer.invoke('transcribe-audio', { apiKey: apiKey, audioData: b64 });
+    var r = await ipcRenderer.invoke('transcribe-audio', { audioData: b64 });
 
     if (r.error) {
       setStatus('Transcription error: ' + (r.error.message || 'unknown'));
@@ -702,14 +1091,8 @@ function monitorManualAudio(){if(!isListening||isProcessing||!analyser)return;va
 async function processManualAudio(blob){
   isProcessing=true;
   setStatus('Processing...');
-  if (!apiKey) {
-    setStatus('Groq API key required for voice transcription. Add it in Settings.');
-    isProcessing=false;
-    if(isListening){setTimeout(function(){if(isListening&&!isProcessing)startAudioRecording();},2000);}
-    return;
-  }
   var b64=await blobToBase64(blob);
-  var r=await ipcRenderer.invoke('transcribe-audio',{apiKey:apiKey,audioData:b64});
+  var r=await ipcRenderer.invoke('transcribe-audio',{audioData:b64});
   if(r.error){
     setStatus('Transcription error: '+(r.error.message||'unknown'));
   } else if(r.text&&r.text.trim()){
@@ -736,41 +1119,34 @@ async function callAIStream(messages, systemPrompt, onDelta, target) {
   var primary = target === 'vision' ? routing.visionPrimary : routing.textPrimary;
   var fallback = target === 'vision' ? routing.visionFallback : routing.textFallback;
 
-  // Try primary
-  var primaryKey = getKeyForProvider(primary.provider);
-  if (primaryKey && primary.model) {
-    var result = await invokeProviderStream(primary.provider, primaryKey, primary.model, messages, systemPrompt, onDelta);
+  // Try primary provider via backend (backend manages API keys)
+  if (primary && primary.provider && primary.model) {
+    var result = await invokeProviderStream(primary.provider, '', primary.model, messages, systemPrompt, onDelta);
     if (!result.error) return result;
     // Primary failed — log and try fallback if configured
     console.warn('Primary failed:', result.error.message);
     if (!fallback || !fallback.provider || !fallback.model) return result;
 
-    var fallbackKey = getKeyForProvider(fallback.provider);
-    if (!fallbackKey) {
-      return { error: { message: 'Primary failed (' + result.error.message + '). Fallback ' + fallback.provider + ' has no API key.' } };
-    }
-
     setStatus('Primary failed, trying fallback (' + fallback.provider + ')...');
-    var fallbackResult = await invokeProviderStream(fallback.provider, fallbackKey, fallback.model, messages, systemPrompt, onDelta);
+    var fallbackResult = await invokeProviderStream(fallback.provider, '', fallback.model, messages, systemPrompt, onDelta);
     if (fallbackResult.error) {
       return { error: { message: 'Both primary and fallback failed. Primary: ' + result.error.message + '. Fallback: ' + fallbackResult.error.message } };
     }
     return fallbackResult;
   }
 
-  // No primary key — try fallback directly
+  // No primary configured — try fallback directly
   if (fallback && fallback.provider && fallback.model) {
-    var fbKey = getKeyForProvider(fallback.provider);
-    if (fbKey) {
-      return await invokeProviderStream(fallback.provider, fbKey, fallback.model, messages, systemPrompt, onDelta);
-    }
+    return await invokeProviderStream(fallback.provider, '', fallback.model, messages, systemPrompt, onDelta);
   }
 
-  return { error: { message: 'No API key configured for ' + primary.provider + ' (primary). Add a key in Settings.' } };
+  return { error: { message: 'No AI provider configured. Contact admin.' } };
 }
 
 async function invokeProviderStream(provider, key, model, messages, systemPrompt, onDelta) {
   var streamId = 'stream_' + Date.now() + '_' + Math.random();
+  // Backend expects model in "provider/model" format for routing
+  var fullModel = model.includes('/') ? model : (provider + '/' + model);
   var listener = function(e, payload) {
     if (payload && payload.streamId === streamId && payload.delta) {
       onDelta(payload.delta);
@@ -779,7 +1155,7 @@ async function invokeProviderStream(provider, key, model, messages, systemPrompt
   ipcRenderer.on('ai-stream-chunk', listener);
   try {
     var result = await ipcRenderer.invoke('call-ai-stream', {
-      provider: provider, apiKey: key, model: model,
+      provider: provider, apiKey: key, model: fullModel,
       messages: messages, systemPrompt: systemPrompt, streamId: streamId
     });
     return result;
@@ -794,38 +1170,71 @@ function getActiveApiKey() {
 }
 
 async function askQuestion(question){
-  if(!getActiveApiKey() && !getKeyForProvider((routing.textFallback||{}).provider)){
-    document.getElementById('answer-text').textContent='Add API key in Settings';return;
-  }
   var dot=document.getElementById('status-dot');dot.classList.remove('listening','passive','screen-active');dot.classList.add('thinking');setStatus('Getting answer...');
   var el=document.getElementById('answer-text');el.innerHTML='<span class="thinking-dots">Thinking...</span>';
   conversationHistory.push({role:'user',content:question});saveChatHistory();
   var streamed='';
   var firstChunk=true;
+  var firstChunkTimer=null;
+  var timedOut=false;
   try{
-    var data=await callAIStream(conversationHistory.slice(-6),
+    // Set up 30-second first-chunk timeout (Req 16.8)
+    var firstChunkPromiseReject=null;
+    var firstChunkTimeout=new Promise(function(_,reject){
+      firstChunkTimer=setTimeout(function(){
+        timedOut=true;
+        reject(new Error('__FIRST_CHUNK_TIMEOUT__'));
+      }, FIRST_CHUNK_TIMEOUT_MS);
+    });
+
+    var aiPromise=callAIStream(conversationHistory.slice(-6),
       buildSystemPrompt('You are a real-time interview assistant. Give concise direct answers. For coding: working code. For behavioral: STAR method. Keep under 200 words unless complex. No preamble.'),
       function(delta){
+        if(firstChunkTimer){clearTimeout(firstChunkTimer);firstChunkTimer=null;}
         if(firstChunk){ el.innerHTML=''; firstChunk=false; setStatus('Answering...'); }
         streamed+=delta;
         el.innerHTML=renderAnswer(streamed);
       },
       'text'
     );
-    if(data.error){el.textContent='Error: '+data.error.message;}
+
+    var data=await Promise.race([aiPromise, firstChunkTimeout]);
+    if(firstChunkTimer){clearTimeout(firstChunkTimer);firstChunkTimer=null;}
+
+    if(data.error){
+      // Handle 402 errors: preserve conversation history (Req 16.6)
+      if(data.error.code==='no_active_session' || data.error.status===402){
+        // Remove the user message we just added — preserve prior history
+        conversationHistory.pop();saveChatHistory();
+        el.innerHTML='<div style="color:#f6ad55;">Session ended. <button onclick="startSession()" style="background:rgba(72,187,120,0.2);border:1px solid rgba(72,187,120,0.4);color:#68d391;padding:4px 10px;border-radius:8px;cursor:pointer;font-size:11px;font-weight:600;">Start New Session</button> or <button onclick="document.getElementById(\'packs-container\').classList.remove(\'hidden\');document.getElementById(\'session-cta\').classList.remove(\'hidden\');" style="background:rgba(99,179,237,0.15);border:1px solid rgba(99,179,237,0.3);color:#63b3ed;padding:4px 10px;border-radius:8px;cursor:pointer;font-size:11px;font-weight:600;">Buy Sessions</button></div>';
+      } else {
+        el.textContent='Error: '+data.error.message;
+      }
+    }
     else{
       var ans=data.content[0].text || streamed;
       conversationHistory.push({role:'assistant',content:ans});saveChatHistory();renderChatHistory();
       el.innerHTML=renderAnswer(ans);
     }
-  }catch(e){el.textContent='Network error: '+e.message;}
+  }catch(e){
+    if(firstChunkTimer){clearTimeout(firstChunkTimer);firstChunkTimer=null;}
+    if(timedOut || (e.message && e.message.indexOf('__FIRST_CHUNK_TIMEOUT__')!==-1)){
+      // 30-second first-chunk timeout: preserve conversation history (Req 16.8)
+      conversationHistory.pop();saveChatHistory();
+      el.textContent='Request timed out (no response within 30s). Your conversation history is preserved.';
+    } else {
+      // Other network errors: preserve conversation history (Req 16.7)
+      conversationHistory.pop();saveChatHistory();
+      el.textContent='Network error: '+e.message+'. Conversation history preserved.';
+    }
+  }
   dot.classList.remove('thinking');restoreStatusDot();setStatus(currentMode==='passive'?'Passive listening...':currentMode==='screen'?'Screen monitoring...':(isListening?'Listening...':'Ready'));
 }
 function restoreStatusDot(){var dot=document.getElementById('status-dot');if(currentMode==='passive')dot.classList.add('passive');else if(currentMode==='screen')dot.classList.add('screen-active');else if(isListening)dot.classList.add('listening');}
 
 // ===== CHAT =====
 function loadChatHistory(){try{var s=localStorage.getItem('interviewChatHistory');if(s){conversationHistory=JSON.parse(s);renderChatHistory();}}catch(e){}}
-function saveChatHistory(){try{localStorage.setItem('interviewChatHistory',JSON.stringify(conversationHistory));}catch(e){}}
+function saveChatHistory(){try{localStorage.setItem('interviewChatHistory',JSON.stringify(conversationHistory));ipcRenderer.send('sync-chat-history', conversationHistory);}catch(e){}}
 function renderChatHistory(){var list=document.getElementById('chat-history-list');var u=conversationHistory.filter(function(m){return m.role==='user';});if(!u.length){list.innerHTML='<div class="chat-empty">No history</div>';return;}var a=conversationHistory.filter(function(m){return m.role==='assistant';});list.innerHTML=u.map(function(m,i){return '<div class="chat-item"><div class="chat-q">Q: '+escapeHtml(m.content.substring(0,60))+'</div><div class="chat-a">A: '+escapeHtml((a[i]?a[i].content:'').substring(0,100))+'</div></div>';}).join('');}
 function toggleChatHistory(){document.getElementById('chat-history-panel').classList.toggle('visible');document.getElementById('chat-history-btn').classList.toggle('active');}
 function clearChatHistory(){if(confirm('Clear history?')){conversationHistory=[];saveChatHistory();renderChatHistory();setStatus('Cleared');}}
@@ -838,7 +1247,47 @@ function escapeHtml(t){return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').repla
 function setStatus(msg){document.getElementById('status-text').textContent=msg;}
 function openSettings(){ipcRenderer.send('open-settings');}
 function minimize(){ipcRenderer.send('minimize-window');}
+function restoreWindow(){ipcRenderer.send('restore-window');}
 function closeApp(){ipcRenderer.send('close-app');}
+
+// ── Mini-mode listener ──
+ipcRenderer.on('mini-mode', function(_event, isMini) {
+  if (isMini) {
+    document.body.classList.add('mini-mode');
+  } else {
+    document.body.classList.remove('mini-mode');
+  }
+});
+
+// ── On-Camera mode listener ──
+let isOnCameraMode = false;
+
+ipcRenderer.on('on-camera-mode', function(_event, isOn) {
+  isOnCameraMode = isOn;
+  if (isOn) {
+    document.body.classList.add('on-camera-mode');
+    // Trigger initial resize
+    requestOnCameraResize();
+  } else {
+    document.body.classList.remove('on-camera-mode');
+  }
+});
+
+function requestOnCameraResize() {
+  if (!isOnCameraMode) return;
+  // Measure the actual content height needed
+  var app = document.getElementById('app');
+  var needed = app.scrollHeight + 2; // +2 for border
+  ipcRenderer.send('resize-on-camera', { height: needed });
+}
+
+// Observe answer changes to auto-resize in on-camera mode
+var _onCameraObserver = new MutationObserver(function() {
+  if (isOnCameraMode) {
+    requestOnCameraResize();
+  }
+});
+_onCameraObserver.observe(document.getElementById('answer-text'), { childList: true, subtree: true, characterData: true });
 ipcRenderer.on('config-changed', function() {
   reloadConfig();
 });
