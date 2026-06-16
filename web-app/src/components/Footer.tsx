@@ -28,11 +28,11 @@ export default function Footer() {
           <a href="mailto:upnodsupport@gmail.com" style={styles.link}>upnodsupport@gmail.com</a>
           <span style={{ ...styles.link, fontSize: 12, color: '#475569' }}>Support &amp; Payment Queries</span>
         </div>
-        <div>
+        {/* <div>
           <h4 style={styles.heading}>Legal</h4>
           <span style={styles.link}>Privacy Policy</span>
           <span style={styles.link}>Terms of Service</span>
-        </div>
+        </div> */}
       </div>
       <div style={styles.bottom}>
         <p>&copy; {new Date().getFullYear()} UpNod. All rights reserved.</p>

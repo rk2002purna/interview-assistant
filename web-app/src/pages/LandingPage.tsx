@@ -16,13 +16,13 @@ export default function LandingPage() {
       <Header />
       <main>
         <HeroSection />
-        <TrustedBySection />
+        {/* <TrustedBySection /> */}
         <FeaturesSection />
         <HowItWorksSection />
         <DemoSection />
         <PricingSection packs={packs} />
         <InvisibleSection />
-        <TestimonialsSection />
+        {/* <TestimonialsSection /> */}
         <DownloadSection />
         <FAQSection />
         <CTASection />
@@ -161,26 +161,26 @@ const hero: Record<string, React.CSSProperties> = {
 };
 
 /* ===== Trusted By ===== */
-function TrustedBySection() {
-  return (
-    <section style={trusted.container}>
-      <p style={trusted.label}>Trusted by 10,000+ job seekers worldwide</p>
-      <div style={trusted.stats}>
-        {[
-          { value: '10K+', label: 'Users' },
-          { value: '50K+', label: 'Interviews Cracked' },
-          { value: '2s', label: 'Avg Response Time' },
-          { value: '98%', label: 'Success Rate' },
-        ].map((s) => (
-          <div key={s.label} style={trusted.stat}>
-            <span style={trusted.statValue}>{s.value}</span>
-            <span style={trusted.statLabel}>{s.label}</span>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
+// function TrustedBySection() {
+//   return (
+//     <section style={trusted.container}>
+//       <p style={trusted.label}>Trusted by 10,000+ job seekers worldwide</p>
+//       <div style={trusted.stats}>
+//         {[
+//           { value: '10K+', label: 'Users' },
+//           { value: '50K+', label: 'Interviews Cracked' },
+//           { value: '2s', label: 'Avg Response Time' },
+//           { value: '98%', label: 'Success Rate' },
+//         ].map((s) => (
+//           <div key={s.label} style={trusted.stat}>
+//             <span style={trusted.statValue}>{s.value}</span>
+//             <span style={trusted.statLabel}>{s.label}</span>
+//           </div>
+//         ))}
+//       </div>
+//     </section>
+//   );
+// }
 
 const trusted: Record<string, React.CSSProperties> = {
   container: {
@@ -551,42 +551,42 @@ function InvisibleSection() {
 }
 
 /* ===== Testimonials ===== */
-function TestimonialsSection() {
-  const testimonials = [
-    { quote: 'Got my dream job at Google thanks to UpNod. The passive mode caught every question the interviewer asked.', name: 'Rahul S.', role: 'Software Engineer at Google', avatar: 'RS' },
-    { quote: 'The Screen Analyzer mode solved a LeetCode hard in under 30 seconds. I would have never solved it on my own.', name: 'Priya M.', role: 'Senior Developer at Amazon', avatar: 'PM' },
-    { quote: 'Used it for 5 interviews. Got 4 offers. The context-aware answers that match your resume are a game changer.', name: 'Alex K.', role: 'Full Stack at Microsoft', avatar: 'AK' },
-  ];
+// function TestimonialsSection() {
+//   const testimonials = [
+//     { quote: 'Got my dream job at Google thanks to UpNod. The passive mode caught every question the interviewer asked.', name: 'Rahul S.', role: 'Software Engineer at Google', avatar: 'RS' },
+//     { quote: 'The Screen Analyzer mode solved a LeetCode hard in under 30 seconds. I would have never solved it on my own.', name: 'Priya M.', role: 'Senior Developer at Amazon', avatar: 'PM' },
+//     { quote: 'Used it for 5 interviews. Got 4 offers. The context-aware answers that match your resume are a game changer.', name: 'Alex K.', role: 'Full Stack at Microsoft', avatar: 'AK' },
+//   ];
 
-  return (
-    <section className="section" style={{ background: 'rgba(255,255,255,0.015)' }}>
-      <div className="container" style={{ textAlign: 'center' as const }}>
-        <span className="section-label">Testimonials</span>
-        <h2 className="section-title" style={{ maxWidth: 600, margin: '0 auto 16px' }}>
-          Loved by Job Seekers Worldwide
-        </h2>
-        <p className="section-subtitle" style={{ margin: '0 auto 48px' }}>
-          Real stories from real users who landed their dream jobs.
-        </p>
+//   return (
+//     <section className="section" style={{ background: 'rgba(255,255,255,0.015)' }}>
+//       <div className="container" style={{ textAlign: 'center' as const }}>
+//         <span className="section-label">Testimonials</span>
+//         <h2 className="section-title" style={{ maxWidth: 600, margin: '0 auto 16px' }}>
+//           Loved by Job Seekers Worldwide
+//         </h2>
+//         <p className="section-subtitle" style={{ margin: '0 auto 48px' }}>
+//           Real stories from real users who landed their dream jobs.
+//         </p>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 24, maxWidth: 960, margin: '0 auto' }}>
-          {testimonials.map((t, i) => (
-            <div key={i} style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 14, padding: '32px 24px', textAlign: 'left' as const }}>
-              <p style={{ fontSize: 14, color: '#cbd5e1', lineHeight: 1.7, fontStyle: 'italic', marginBottom: 20 }}>"{t.quote}"</p>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: 'white' }}>{t.avatar}</div>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: '#f1f5f9' }}>{t.name}</div>
-                  <div style={{ fontSize: 12, color: '#64748b' }}>{t.role}</div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
+//         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 24, maxWidth: 960, margin: '0 auto' }}>
+//           {testimonials.map((t, i) => (
+//             <div key={i} style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 14, padding: '32px 24px', textAlign: 'left' as const }}>
+//               <p style={{ fontSize: 14, color: '#cbd5e1', lineHeight: 1.7, fontStyle: 'italic', marginBottom: 20 }}>"{t.quote}"</p>
+//               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+//                 <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: 'white' }}>{t.avatar}</div>
+//                 <div>
+//                   <div style={{ fontSize: 14, fontWeight: 600, color: '#f1f5f9' }}>{t.name}</div>
+//                   <div style={{ fontSize: 12, color: '#64748b' }}>{t.role}</div>
+//                 </div>
+//               </div>
+//             </div>
+//           ))}
+//         </div>
+//       </div>
+//     </section>
+//   );
+// }
 
 /* ===== Download ===== */
 const DOWNLOAD_URLS = {

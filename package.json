@@ -21,10 +21,12 @@
   "build": {
     "appId": "com.upnod.app",
     "productName": "UpNod",
+    "icon": "build/icon",
     "directories": {
       "output": "dist"
     },
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -50,6 +52,7 @@
       }
     ],
     "mac": {
+      "icon": "build/icon.icns",
       "target": [
         {
           "target": "dmg",
