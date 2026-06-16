@@ -6,7 +6,7 @@ const { readActiveWindowText } = require('./screen-reader');
 const { backendRequest } = require('./net/backend-client');
 
 // ── Browser Auth Configuration ─────────────────────────────────────────────
-const WEB_APP_URL = process.env.WEB_APP_URL || 'http://localhost:5173';
+const WEB_APP_URL = process.env.WEB_APP_URL || 'https://upnod.referconnect.in';
 
 /** Parse interview-assistant://callback?access_token=...&refresh_token=... */
 function handleProtocolUrl(urlStr) {
@@ -582,7 +582,8 @@ ipcMain.handle('transcribe-audio', async (event, { audioData }) => {
       'X-Build-Version': '1.0.0'
     };
 
-    const response = await fetch('http://localhost:8787/ai/audio', {
+    const { getBaseUrl } = require('./net/backend-client');
+    const response = await fetch(`${getBaseUrl()}/ai/audio`, {
       method: 'POST',
       headers,
       body: formData

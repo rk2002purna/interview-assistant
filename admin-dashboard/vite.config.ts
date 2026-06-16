@@ -4,6 +4,8 @@ import path from 'path';
 
 export default defineConfig({
   plugins: [react()],
+  // Serve admin dashboard under /admin in production
+  base: process.env.NODE_ENV === 'production' ? '/admin/' : '/',
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -12,11 +14,14 @@ export default defineConfig({
   server: {
     port: 5174,
     proxy: {
-  '/api': {
-    target: 'http://localhost:8787',  // ← match your backend port
-    changeOrigin: true,
-    rewrite: (p) => p.replace(/^\/api/, ''),
+      '/api': {
+        target: 'http://localhost:8787',
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/api/, ''),
+      },
+    },
   },
-},
+  build: {
+    outDir: 'dist',
   },
 });

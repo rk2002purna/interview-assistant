@@ -62,7 +62,8 @@ export default function LoginPage() {
         // For desktop app OAuth flow — redirect to callback
         window.location.href = `/callback?redirect=${encodeURIComponent(redirectTo)}`;
       } else {
-        navigate(redirectTo, { replace: true });
+        // Full page reload so Header picks up the new auth state
+        window.location.href = redirectTo;
       }
     } else {
       setError(result.error);

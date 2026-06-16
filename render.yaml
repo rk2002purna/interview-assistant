@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: interview-assistant-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MODE
+        value: paid
+      - key: PORT
+        value: 8787
+      # --- Set these manually in Render dashboard (sensitive values) ---
+      - key: DATABASE_URL_PAID
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: MASTER_ENCRYPTION_KEY
+        sync: false
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        value: "Interview Assistant <noreply@referconnect.in>"
+      - key: WEB_APP_URL
+        value: https://upnod.referconnect.in
+      - key: ADMIN_DASHBOARD_URL
+        value: https://admin.referconnect.in
+      - key: WEB_APP_BASE_URL
+        value: https://upnod.referconnect.in
+      - key: MIN_BUILD_VERSION
+        value: "1.0.0"

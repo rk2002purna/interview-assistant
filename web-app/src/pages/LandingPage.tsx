@@ -589,6 +589,11 @@ function TestimonialsSection() {
 }
 
 /* ===== Download ===== */
+const DOWNLOAD_URLS = {
+  windows: 'https://github.com/YOUR-ORG/YOUR-REPO/releases/latest/download/UpNod-Setup.exe',
+  mac: 'https://github.com/YOUR-ORG/YOUR-REPO/releases/latest/download/UpNod.dmg',
+};
+
 function DownloadSection() {
   return (
     <section id="download" className="section">
@@ -606,19 +611,19 @@ function DownloadSection() {
             <span style={dl.osIcon}>🪟</span>
             <h3 style={dl.osName}>Windows</h3>
             <p style={dl.osVer}>Windows 10 / 11 (x64)</p>
-            <a href="#" className="btn btn-primary btn-lg" style={{ marginTop: 16 }}>
-              Download for Windows
+            <a href={DOWNLOAD_URLS.windows} download className="btn btn-primary btn-lg" style={{ marginTop: 16, display: 'inline-block' }}>
+              ⬇ Download for Windows
             </a>
-            <p style={dl.size}>~120 MB • v1.0.0</p>
+            <p style={dl.size}>v1.0.0 • .exe installer</p>
           </div>
           <div style={dl.card}>
             <span style={dl.osIcon}>🍎</span>
             <h3 style={dl.osName}>macOS</h3>
             <p style={dl.osVer}>macOS 12+ (Apple Silicon & Intel)</p>
-            <a href="#" className="btn btn-primary btn-lg" style={{ marginTop: 16 }}>
-              Download for macOS
+            <a href={DOWNLOAD_URLS.mac} download className="btn btn-primary btn-lg" style={{ marginTop: 16, display: 'inline-block' }}>
+              ⬇ Download for macOS
             </a>
-            <p style={dl.size}>~130 MB • v1.0.0</p>
+            <p style={dl.size}>v1.0.0 • .dmg disk image</p>
           </div>
         </div>
       </div>

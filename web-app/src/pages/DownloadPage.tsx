@@ -1,6 +1,17 @@
 import Header from '../components/Header';
 import Footer from '../components/Footer';
 
+// ─── Update these URLs after each GitHub Release ────────────────────────────
+// Go to: https://github.com/YOUR-ORG/YOUR-REPO/releases
+// Copy the direct asset download links and paste below.
+const DOWNLOAD_URLS = {
+  windows: 'https://github.com/YOUR-ORG/YOUR-REPO/releases/latest/download/UpNod-Setup.exe',
+  mac: 'https://github.com/YOUR-ORG/YOUR-REPO/releases/latest/download/UpNod.dmg',
+};
+
+const APP_VERSION = '1.0.0';
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function DownloadPage() {
   return (
     <>
@@ -17,6 +28,7 @@ export default function DownloadPage() {
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 24, maxWidth: 700, margin: '0 auto' }}>
+          {/* Windows */}
           <div style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: '48px 32px', textAlign: 'center' }}>
             <span style={{ fontSize: 48, display: 'block', marginBottom: 20 }}>🪟</span>
             <h2 style={{ fontSize: 22, fontWeight: 700, color: '#f1f5f9', marginBottom: 8 }}>Windows</h2>
@@ -29,12 +41,18 @@ export default function DownloadPage() {
                 • Sign in through your browser
               </p>
             </div>
-            <a href="#" className="btn btn-primary btn-lg" style={{ width: '100%' }}>
-              Download for Windows
+            <a
+              href={DOWNLOAD_URLS.windows}
+              download
+              className="btn btn-primary btn-lg"
+              style={{ width: '100%', display: 'inline-block' }}
+            >
+              ⬇ Download for Windows
             </a>
-            <p style={{ fontSize: 12, color: '#475569', marginTop: 12 }}>Version 1.0.0 • ~120 MB</p>
+            <p style={{ fontSize: 12, color: '#475569', marginTop: 12 }}>Version {APP_VERSION} • .exe installer</p>
           </div>
 
+          {/* macOS */}
           <div style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: '48px 32px', textAlign: 'center' }}>
             <span style={{ fontSize: 48, display: 'block', marginBottom: 20 }}>🍎</span>
             <h2 style={{ fontSize: 22, fontWeight: 700, color: '#f1f5f9', marginBottom: 8 }}>macOS</h2>
@@ -47,10 +65,15 @@ export default function DownloadPage() {
                 • Sign in through your browser
               </p>
             </div>
-            <a href="#" className="btn btn-primary btn-lg" style={{ width: '100%' }}>
-              Download for macOS
+            <a
+              href={DOWNLOAD_URLS.mac}
+              download
+              className="btn btn-primary btn-lg"
+              style={{ width: '100%', display: 'inline-block' }}
+            >
+              ⬇ Download for macOS
             </a>
-            <p style={{ fontSize: 12, color: '#475569', marginTop: 12 }}>Version 1.0.0 • ~130 MB</p>
+            <p style={{ fontSize: 12, color: '#475569', marginTop: 12 }}>Version {APP_VERSION} • .dmg disk image</p>
           </div>
         </div>
 

@@ -18,4 +18,8 @@ export default defineConfig({
       },
     },
   },
+  // Production build outputs to dist/ at root path "/"
+  build: {
+    outDir: 'dist',
+  },
 });
