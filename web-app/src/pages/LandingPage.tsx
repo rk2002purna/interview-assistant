@@ -182,25 +182,25 @@ const hero: Record<string, React.CSSProperties> = {
 //   );
 // }
 
-const trusted: Record<string, React.CSSProperties> = {
-  container: {
-    padding: '40px 24px',
-    textAlign: 'center',
-    borderTop: '1px solid rgba(255,255,255,0.04)',
-    borderBottom: '1px solid rgba(255,255,255,0.04)',
-    background: 'rgba(255,255,255,0.01)',
-  },
-  label: { fontSize: 14, color: '#64748b', marginBottom: 28 },
-  stats: {
-    display: 'flex',
-    justifyContent: 'center',
-    gap: 60,
-    flexWrap: 'wrap' as const,
-  },
-  stat: { display: 'flex', flexDirection: 'column' as const, alignItems: 'center', gap: 4 },
-  statValue: { fontSize: '1.8rem', fontWeight: 800, color: '#f1f5f9' },
-  statLabel: { fontSize: 13, color: '#64748b' },
-};
+// const trusted: Record<string, React.CSSProperties> = {
+//   container: {
+//     padding: '40px 24px',
+//     textAlign: 'center',
+//     borderTop: '1px solid rgba(255,255,255,0.04)',
+//     borderBottom: '1px solid rgba(255,255,255,0.04)',
+//     background: 'rgba(255,255,255,0.01)',
+//   },
+//   label: { fontSize: 14, color: '#64748b', marginBottom: 28 },
+//   stats: {
+//     display: 'flex',
+//     justifyContent: 'center',
+//     gap: 60,
+//     flexWrap: 'wrap' as const,
+//   },
+//   stat: { display: 'flex', flexDirection: 'column' as const, alignItems: 'center', gap: 4 },
+//   statValue: { fontSize: '1.8rem', fontWeight: 800, color: '#f1f5f9' },
+//   statLabel: { fontSize: 13, color: '#64748b' },
+// };
 
 /* ===== Features ===== */
 function FeaturesSection() {
