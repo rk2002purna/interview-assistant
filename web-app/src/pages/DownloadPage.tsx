@@ -1,12 +1,10 @@
 import Header from '../components/Header';
 import Footer from '../components/Footer';
 
-// ─── Update these URLs after each GitHub Release ────────────────────────────
-// Go to: https://github.com/YOUR-ORG/YOUR-REPO/releases
-// Copy the direct asset download links and paste below.
+// ─── Download URLs — pointing to GitHub Releases (public, no login required) ─
 const DOWNLOAD_URLS = {
-  windows: 'https://github.com/YOUR-ORG/YOUR-REPO/releases/latest/download/UpNod-Setup.exe',
-  mac: 'https://github.com/YOUR-ORG/YOUR-REPO/releases/latest/download/UpNod.dmg',
+  windows: 'https://github.com/rk2002purna/interview-assistant/releases/latest/download/UpNod-Setup-1.0.0.exe',
+  mac: 'https://github.com/rk2002purna/interview-assistant/releases/latest/download/UpNod-1.0.0.dmg',
 };
 
 const APP_VERSION = '1.0.0';

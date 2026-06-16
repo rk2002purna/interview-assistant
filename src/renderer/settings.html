@@ -437,7 +437,7 @@
     // Open the web app pricing page in the browser.
     // The user can select a pack and complete payment via UPI.
     try {
-      shell.openExternal('http://localhost:5173/pricing');
+      shell.openExternal('https://upnod.referconnect.in/pricing');
     } catch (err) {
       console.error('Failed to open pricing page:', err);
     }
@@ -488,9 +488,7 @@
   }
 
   function getAdminDashboardUrl() {
-    // The admin dashboard URL is derived from the backend base URL
-    // This will be configured via environment or config
-    return 'http://localhost:3000/admin';
+    return 'https://admin.referconnect.in';
   }
 
   // ── Config Load / Save ────────────────────────────────────────────────────

@@ -590,8 +590,8 @@ function TestimonialsSection() {
 
 /* ===== Download ===== */
 const DOWNLOAD_URLS = {
-  windows: 'https://github.com/YOUR-ORG/YOUR-REPO/releases/latest/download/UpNod-Setup.exe',
-  mac: 'https://github.com/YOUR-ORG/YOUR-REPO/releases/latest/download/UpNod.dmg',
+  windows: 'https://github.com/rk2002purna/interview-assistant/releases/latest/download/UpNod-Setup-1.0.0.exe',
+  mac: 'https://github.com/rk2002purna/interview-assistant/releases/latest/download/UpNod-1.0.0.dmg',
 };
 
 function DownloadSection() {
