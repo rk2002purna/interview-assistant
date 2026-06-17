@@ -116,9 +116,10 @@ function createMainWindow() {
     hasShadow: false,
   });
 
-  if (process.platform === 'win32' || process.platform === 'darwin') {
-    mainWindow.setContentProtection(true);
-  }
+  // DEMO MODE: screen hiding disabled so viewers can see the app
+  // if (process.platform === 'win32' || process.platform === 'darwin') {
+  //   mainWindow.setContentProtection(true);
+  // }
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'login.html'));
 
@@ -151,10 +152,10 @@ function createSettingsWindow() {
   });
   settingsWindow.loadFile(path.join(__dirname, 'renderer', 'settings.html'));
 
-  // Make settings window invisible to screen recording (same as main window)
-  if (process.platform === 'win32' || process.platform === 'darwin') {
-    settingsWindow.setContentProtection(true);
-  }
+  // DEMO MODE: screen hiding disabled so viewers can see the app
+  // if (process.platform === 'win32' || process.platform === 'darwin') {
+  //   settingsWindow.setContentProtection(true);
+  // }
 
   settingsWindow.on('closed', () => settingsWindow = null);
 }
@@ -296,10 +297,10 @@ ipcMain.on('hide-for-screenshot', () => {
 ipcMain.on('show-after-screenshot', () => {
   if (mainWindow) {
     mainWindow.showInactive();
-    // Re-apply ALL window protections after show (they get reset on hide/show cycle)
-    if (process.platform === 'win32' || process.platform === 'darwin') {
-      mainWindow.setContentProtection(true);
-    }
+    // DEMO MODE: screen hiding disabled so viewers can see the app
+    // if (process.platform === 'win32' || process.platform === 'darwin') {
+    //   mainWindow.setContentProtection(true);
+    // }
     if (process.platform === 'darwin') {
       mainWindow.setAlwaysOnTop(true, 'floating', 1);
       mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
