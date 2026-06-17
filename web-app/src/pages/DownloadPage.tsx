@@ -4,8 +4,8 @@ import Footer from '../components/Footer';
 // ─── Download URLs — GitHub Releases (public, no login required) ─────────────
 const DOWNLOAD_URLS = {
   windows: 'https://github.com/rk2002purna/interview-assistant/releases/download/windows/UpNod.Setup.1.0.0.exe',
-  macArm:  'https://github.com/rk2002purna/interview-assistant/releases/latest/download/UpNod-1.0.0-arm64.dmg',
-  macIntel:'https://github.com/rk2002purna/interview-assistant/releases/latest/download/UpNod-1.0.0.dmg',
+  macArm:  'https://github.com/rk2002purna/interview-assistant/releases/download/UpNodForMacNew/UpNod-1.0.0-arm64.dmg',
+  macIntel:'https://github.com/rk2002purna/interview-assistant/releases/download/UpNodForMacOld/UpNod-1.0.0.dmg',
 };
 
 const APP_VERSION = '1.0.0';
@@ -71,7 +71,7 @@ export default function DownloadPage() {
 
             {/* Apple Silicon */}
             <a href={DOWNLOAD_URLS.macArm} download className="btn btn-primary btn-lg" style={{ width: '100%', display: 'inline-block', marginBottom: 10 }}>
-              ⬇ Download for Apple Silicon (M1/M2/M3)
+              ⬇ Download for Apple Silicon
             </a>
 
             {/* Intel */}

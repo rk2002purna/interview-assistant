@@ -9,7 +9,10 @@
       "Bash(git add *)",
       "Bash(git commit -m 'Fix app icon: stop ignoring build/ folder and set window icon at runtime *)",
       "Bash(git check-ignore *)",
-      "Bash(echo \"exit: $?\")"
+      "Bash(echo \"exit: $?\")",
+      "Bash(git push *)",
+      "Bash(npx tsc *)",
+      "Bash(npx vite *)"
     ]
   }
 }
