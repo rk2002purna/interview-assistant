@@ -383,10 +383,20 @@ function DemoSection() {
         </p>
 
         <div style={demo.videoWrap}>
-          <div style={demo.placeholder}>
-            <div style={demo.playBtn}>▶</div>
-            <p style={demo.playText}>Watch Demo (2:30)</p>
-          </div>
+          <iframe
+            width="800"
+            height="450"
+            src="https://www.youtube.com/embed/UCP7Stnyr2U"
+            title="How to Install UpNod App on Windows and Mac | Complete Setup Guide"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            referrerPolicy="strict-origin-when-cross-origin"
+            allowFullScreen
+            style={{
+              width: '100%',
+              height: '100%',
+              border: 'none',
+            }}
+          />
         </div>
       </div>
     </section>
@@ -402,32 +412,7 @@ const demo: Record<string, React.CSSProperties> = {
     border: '1px solid rgba(255,255,255,0.06)',
     background: 'rgba(0,0,0,0.4)',
     aspectRatio: '16/9',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  placeholder: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    alignItems: 'center',
-    gap: 16,
-    color: '#64748b',
-  },
-  playBtn: {
-    width: 72,
-    height: 72,
-    borderRadius: '50%',
-    background: 'rgba(59,130,246,0.2)',
-    border: '2px solid rgba(59,130,246,0.4)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: 28,
-    color: '#60a5fa',
-    cursor: 'pointer',
-    transition: 'all 0.2s',
-  },
-  playText: { fontSize: 14, color: '#64748b' },
 };
 
 /* ===== Pricing ===== */
