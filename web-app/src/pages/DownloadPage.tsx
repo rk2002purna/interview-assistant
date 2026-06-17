@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Header from '../components/Header';
 import Footer from '../components/Footer';
 
@@ -12,6 +12,17 @@ export const DOWNLOAD_URLS = {
 export const APP_VERSION = '1.0.0';
 
 type MacChip = 'arm64' | 'x64';
+
+// ─── Detect user's platform ──────────────────────────────────────────────
+function detectPlatform(): 'windows' | 'mac' | 'other' {
+  if (typeof navigator === 'undefined') return 'other';
+  const ua = (navigator.userAgent || '').toLowerCase();
+  // macOS
+  if (/macintosh|mac os x/i.test(ua)) return 'mac';
+  // Windows
+  if (/windows|win32|win64/i.test(ua)) return 'windows';
+  return 'other';
+}
 
 // ─── Shared sub-components ──────────────────────────────────────────────
 function Step({ num, label }: { num: number; label: string }) {
@@ -40,6 +51,11 @@ function ReqItem({ label }: { label: string }) {
 // ─── Download content (shared between Landing page and /download page) ────
 export function DownloadContent({ compact = false }: { compact?: boolean }) {
   const [selectedChip, setSelectedChip] = useState<MacChip>('arm64');
+  const [userPlatform, setUserPlatform] = useState<'windows' | 'mac' | 'other'>('other');
+
+  useEffect(() => {
+    setUserPlatform(detectPlatform());
+  }, []);
 
   const macDownloadUrl = selectedChip === 'arm64' ? DOWNLOAD_URLS.macArm : DOWNLOAD_URLS.macIntel;
   const macChipLabel = selectedChip === 'arm64' ? 'Apple Silicon (M1/M2/M3/M4)' : 'Intel (x64)';
@@ -83,10 +99,23 @@ export function DownloadContent({ compact = false }: { compact?: boolean }) {
 
         {/* ── Windows ── */}
         <div style={{
-          background: 'rgba(255,255,255,0.02)',
-          border: '1px solid rgba(255,255,255,0.06)',
+          background: userPlatform === 'windows'
+            ? 'rgba(59,130,246,0.05)'
+            : 'rgba(255,255,255,0.02)',
+          border: userPlatform === 'windows'
+            ? '2px solid rgba(59,130,246,0.25)'
+            : '1px solid rgba(255,255,255,0.06)',
           borderRadius: 16, padding: '36px 32px',
+          position: 'relative',
         }}>
+          {userPlatform === 'windows' && (
+            <span style={{
+              position: 'absolute', top: -12, right: 24,
+              background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+              color: '#fff', fontSize: 11, fontWeight: 600,
+              padding: '3px 10px', borderRadius: 100,
+            }}>Recommended for you</span>
+          )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 22 }}>
             <div style={{
               width: 48, height: 48, borderRadius: 12,
@@ -124,17 +153,23 @@ export function DownloadContent({ compact = false }: { compact?: boolean }) {
 
         {/* ── macOS ── */}
         <div style={{
-          background: 'rgba(255,255,255,0.025)',
-          border: '2px solid rgba(59,130,246,0.18)',
+          background: userPlatform === 'mac'
+            ? 'rgba(59,130,246,0.05)'
+            : 'rgba(255,255,255,0.025)',
+          border: userPlatform === 'mac'
+            ? '2px solid rgba(59,130,246,0.25)'
+            : '1px solid rgba(255,255,255,0.08)',
           borderRadius: 16, padding: '36px 32px',
           position: 'relative',
         }}>
-          <span style={{
-            position: 'absolute', top: -12, right: 24,
-            background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
-            color: '#fff', fontSize: 11, fontWeight: 600,
-            padding: '3px 10px', borderRadius: 100,
-          }}>Recommended</span>
+          {userPlatform === 'mac' && (
+            <span style={{
+              position: 'absolute', top: -12, right: 24,
+              background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+              color: '#fff', fontSize: 11, fontWeight: 600,
+              padding: '3px 10px', borderRadius: 100,
+            }}>Recommended for you</span>
+          )}
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 22 }}>
             <div style={{
