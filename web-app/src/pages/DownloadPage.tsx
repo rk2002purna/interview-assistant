@@ -1,119 +1,332 @@
+import { useState } from 'react';
 import Header from '../components/Header';
 import Footer from '../components/Footer';
 
 // ─── Download URLs — GitHub Releases (public, no login required) ─────────────
-const DOWNLOAD_URLS = {
+export const DOWNLOAD_URLS = {
   windows: 'https://github.com/rk2002purna/interview-assistant/releases/download/windows/UpNod.Setup.1.0.0.exe',
   macArm:  'https://github.com/rk2002purna/interview-assistant/releases/download/UpNodForMacNew/UpNod-1.0.0-arm64.dmg',
   macIntel:'https://github.com/rk2002purna/interview-assistant/releases/download/UpNodForMacOld/UpNod-1.0.0.dmg',
 };
 
-const APP_VERSION = '1.0.0';
-// ─────────────────────────────────────────────────────────────────────────────
+export const APP_VERSION = '1.0.0';
 
+type MacChip = 'arm64' | 'x64';
+
+// ─── Shared sub-components ──────────────────────────────────────────────
+function Step({ num, label }: { num: number; label: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+      <span style={{
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        width: 24, height: 24, borderRadius: '50%',
+        background: 'rgba(59,130,246,0.2)', color: '#60a5fa',
+        fontSize: 12, fontWeight: 700, flexShrink: 0,
+      }}>{num}</span>
+      <span style={{ fontSize: 14, color: '#e2e8f0' }}>{label}</span>
+    </div>
+  );
+}
+
+function ReqItem({ label }: { label: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <span style={{ fontSize: 10, color: '#3b82f6' }}>●</span>
+      <span style={{ fontSize: 13, color: '#94a3b8' }}>{label}</span>
+    </div>
+  );
+}
+
+// ─── Download content (shared between Landing page and /download page) ────
+export function DownloadContent({ compact = false }: { compact?: boolean }) {
+  const [selectedChip, setSelectedChip] = useState<MacChip>('arm64');
+
+  const macDownloadUrl = selectedChip === 'arm64' ? DOWNLOAD_URLS.macArm : DOWNLOAD_URLS.macIntel;
+  const macChipLabel = selectedChip === 'arm64' ? 'Apple Silicon (M1/M2/M3/M4)' : 'Intel (x64)';
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ textAlign: 'center', marginBottom: compact ? 40 : 56 }}>
+        {compact ? (
+          <>
+            <span className="section-label">Download</span>
+            <h2 className="section-title" style={{ maxWidth: 600, margin: '0 auto 16px' }}>
+              Get UpNod
+            </h2>
+            <p className="section-subtitle" style={{ margin: '0 auto 40px' }}>
+              Available for Windows and macOS. Free download with 3 starter sessions included.
+            </p>
+          </>
+        ) : (
+          <>
+            <span className="section-label">Download</span>
+            <h1 style={{ fontSize: '2.5rem', fontWeight: 800, color: '#f1f5f9', marginBottom: 14, letterSpacing: '-0.02em' }}>
+              Get UpNod for Desktop
+            </h1>
+            <p style={{ fontSize: '1.05rem', color: '#94a3b8', maxWidth: 480, margin: '0 auto' }}>
+              Download for Windows or macOS. Free to start — 3 sessions included.
+            </p>
+          </>
+        )}
+      </div>
+
+      {/* Platform cards */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gap: 28,
+        alignItems: 'start',
+        maxWidth: 900,
+        margin: '0 auto',
+      }}>
+
+        {/* ── Windows ── */}
+        <div style={{
+          background: 'rgba(255,255,255,0.02)',
+          border: '1px solid rgba(255,255,255,0.06)',
+          borderRadius: 16, padding: '36px 32px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 22 }}>
+            <div style={{
+              width: 48, height: 48, borderRadius: 12,
+              background: 'rgba(0,166,255,0.12)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 24,
+            }}>🪟</div>
+            <div>
+              <h2 style={{ fontSize: 20, fontWeight: 700, color: '#f1f5f9' }}>Windows</h2>
+              <p style={{ fontSize: 13, color: '#64748b' }}>Windows 10 / 11 • x64</p>
+            </div>
+          </div>
+
+          <div style={{
+            background: 'rgba(255,255,255,0.025)', borderRadius: 10,
+            padding: '18px 20px', marginBottom: 22,
+          }}>
+            <Step num={1} label="Download the .exe installer" />
+            <Step num={2} label="Run the installer — one click" />
+            <Step num={3} label="Launch UpNod from Start Menu" />
+            <Step num={4} label="Sign in through your browser" />
+          </div>
+
+          <a
+            href={DOWNLOAD_URLS.windows}
+            className="btn btn-primary btn-lg"
+            style={{ width: '100%', marginBottom: 10 }}
+          >
+            ⬇ Download for Windows
+          </a>
+          <p style={{ fontSize: 12, color: '#475569', textAlign: 'center' }}>
+            Version {APP_VERSION} • ~90 MB • .exe installer
+          </p>
+        </div>
+
+        {/* ── macOS ── */}
+        <div style={{
+          background: 'rgba(255,255,255,0.025)',
+          border: '2px solid rgba(59,130,246,0.18)',
+          borderRadius: 16, padding: '36px 32px',
+          position: 'relative',
+        }}>
+          <span style={{
+            position: 'absolute', top: -12, right: 24,
+            background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+            color: '#fff', fontSize: 11, fontWeight: 600,
+            padding: '3px 10px', borderRadius: 100,
+          }}>Recommended</span>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 22 }}>
+            <div style={{
+              width: 48, height: 48, borderRadius: 12,
+              background: 'rgba(255,255,255,0.06)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 24,
+            }}>🍎</div>
+            <div>
+              <h2 style={{ fontSize: 20, fontWeight: 700, color: '#f1f5f9' }}>macOS</h2>
+              <p style={{ fontSize: 13, color: '#64748b' }}>macOS 12+ • Universal</p>
+            </div>
+          </div>
+
+          {/* Chip Selector */}
+          <p style={{
+            fontSize: 13, fontWeight: 600, color: '#94a3b8',
+            marginBottom: 10, letterSpacing: '0.03em',
+          }}>
+            Select your Mac type
+          </p>
+
+          <div style={{
+            display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8,
+            marginBottom: 20,
+          }}>
+            <button
+              onClick={() => setSelectedChip('arm64')}
+              style={{
+                background: selectedChip === 'arm64'
+                  ? 'rgba(59,130,246,0.15)'
+                  : 'rgba(255,255,255,0.03)',
+                border: selectedChip === 'arm64'
+                  ? '1.5px solid rgba(59,130,246,0.5)'
+                  : '1px solid rgba(255,255,255,0.08)',
+                borderRadius: 10, padding: '14px 12px',
+                cursor: 'pointer', textAlign: 'center',
+                transition: 'all 0.2s',
+                fontFamily: 'inherit', color: 'inherit',
+              }}
+            >
+              <div style={{ fontSize: 18, marginBottom: 4 }}>💻</div>
+              <div style={{
+                fontSize: 13, fontWeight: 700,
+                color: selectedChip === 'arm64' ? '#60a5fa' : '#94a3b8',
+                marginBottom: 2,
+              }}>Apple Silicon</div>
+              <div style={{ fontSize: 11, color: '#64748b' }}>M1 · M2 · M3 · M4</div>
+              {selectedChip === 'arm64' && (
+                <span style={{
+                  display: 'inline-block', marginTop: 6,
+                  fontSize: 10, fontWeight: 600, color: '#22c55e',
+                  background: 'rgba(34,197,94,0.12)',
+                  padding: '2px 8px', borderRadius: 100,
+                }}>✓ Most common</span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setSelectedChip('x64')}
+              style={{
+                background: selectedChip === 'x64'
+                  ? 'rgba(139,92,246,0.15)'
+                  : 'rgba(255,255,255,0.03)',
+                border: selectedChip === 'x64'
+                  ? '1.5px solid rgba(139,92,246,0.5)'
+                  : '1px solid rgba(255,255,255,0.08)',
+                borderRadius: 10, padding: '14px 12px',
+                cursor: 'pointer', textAlign: 'center',
+                transition: 'all 0.2s',
+                fontFamily: 'inherit', color: 'inherit',
+              }}
+            >
+              <div style={{ fontSize: 18, marginBottom: 4 }}>🖥️</div>
+              <div style={{
+                fontSize: 13, fontWeight: 700,
+                color: selectedChip === 'x64' ? '#a78bfa' : '#94a3b8',
+                marginBottom: 2,
+              }}>Intel</div>
+              <div style={{ fontSize: 11, color: '#64748b' }}>2019 or earlier</div>
+              {selectedChip === 'x64' && (
+                <span style={{
+                  display: 'inline-block', marginTop: 6,
+                  fontSize: 10, fontWeight: 600, color: '#a78bfa',
+                  background: 'rgba(139,92,246,0.12)',
+                  padding: '2px 8px', borderRadius: 100,
+                }}>Legacy chip</span>
+              )}
+            </button>
+          </div>
+
+          <div style={{
+            background: 'rgba(255,255,255,0.025)', borderRadius: 10,
+            padding: '18px 20px', marginBottom: 22,
+          }}>
+            <Step num={1} label="Download the .dmg disk image" />
+            <Step num={2} label="Drag UpNod to Applications" />
+            <Step num={3} label="Right-click → Open on first launch" />
+            <Step num={4} label="Sign in through your browser" />
+          </div>
+
+          <a
+            href={macDownloadUrl}
+            className="btn btn-green btn-lg"
+            style={{ width: '100%', marginBottom: 10 }}
+          >
+            ⬇ Download for {macChipLabel}
+          </a>
+          <p style={{ fontSize: 12, color: '#475569', textAlign: 'center' }}>
+            Version {APP_VERSION} • ~95 MB • .dmg disk image
+          </p>
+        </div>
+      </div>
+
+      {/* Gatekeeper notice */}
+      <div style={{
+        maxWidth: 900, margin: '28px auto 0',
+        background: 'rgba(245,158,11,0.04)',
+        border: '1px solid rgba(245,158,11,0.15)',
+        borderRadius: 12, padding: '20px 28px',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+          <span style={{ fontSize: 20, flexShrink: 0 }}>🔐</span>
+          <div>
+            <h3 style={{ fontSize: 14, fontWeight: 600, color: '#f59e0b', marginBottom: 6 }}>
+              macOS may show a security warning on first launch
+            </h3>
+            <p style={{ fontSize: 13, color: '#94a3b8', lineHeight: 1.7, marginBottom: 10 }}>
+              This is Gatekeeper — Apple's notarization check. The app is safe, just from outside the App Store.
+              If you see <em>"UpNod is damaged and can't be opened"</em>, run this in Terminal:
+            </p>
+            <div style={{
+              background: 'rgba(0,0,0,0.35)', borderRadius: 8,
+              padding: '10px 16px', fontFamily: 'SF Mono, Menlo, monospace',
+              fontSize: 13, color: '#68d391',
+              display: 'inline-block', userSelect: 'all',
+            }}>
+              xattr -cr /Applications/UpNod.app
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* System requirements */}
+      <div style={{
+        maxWidth: 900, margin: '28px auto 0',
+        display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 28,
+      }}>
+        <div style={{
+          background: 'rgba(59,130,246,0.04)',
+          border: '1px solid rgba(59,130,246,0.1)',
+          borderRadius: 12, padding: '24px 28px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+            <span style={{ fontSize: 20 }}>🪟</span>
+            <h4 style={{ fontSize: 15, fontWeight: 600, color: '#f1f5f9' }}>Windows Requirements</h4>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <ReqItem label="Windows 10 or 11 (x64)" />
+            <ReqItem label="4 GB RAM minimum" />
+            <ReqItem label="~50 MB disk space" />
+            <ReqItem label="Internet connection for AI" />
+          </div>
+        </div>
+        <div style={{
+          background: 'rgba(59,130,246,0.04)',
+          border: '1px solid rgba(59,130,246,0.1)',
+          borderRadius: 12, padding: '24px 28px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+            <span style={{ fontSize: 20 }}>🍎</span>
+            <h4 style={{ fontSize: 15, fontWeight: 600, color: '#f1f5f9' }}>macOS Requirements</h4>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <ReqItem label="macOS 12 (Monterey) or newer" />
+            <ReqItem label="Intel or Apple Silicon" />
+            <ReqItem label="4 GB RAM minimum" />
+            <ReqItem label="Internet connection for AI" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Full download page (with Header/Footer for /download route) ─────────
 export default function DownloadPage() {
   return (
     <>
       <Header />
       <main style={{ padding: '120px 24px 80px' }}>
-        <div style={{ textAlign: 'center', marginBottom: 60 }}>
-          <span className="section-label">Download</span>
-          <h1 style={{ fontSize: '2.5rem', fontWeight: 800, color: '#f1f5f9', marginBottom: 16, letterSpacing: '-0.02em' }}>
-            Download UpNod
-          </h1>
-          <p style={{ fontSize: '1.1rem', color: '#94a3b8', maxWidth: 500, margin: '0 auto' }}>
-            Get the desktop app for Windows or macOS. Free with 3 starter sessions.
-          </p>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 24, maxWidth: 760, margin: '0 auto' }}>
-
-          {/* Windows */}
-          <div style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: '40px 28px', textAlign: 'center' }}>
-            <span style={{ fontSize: 48, display: 'block', marginBottom: 20 }}>🪟</span>
-            <h2 style={{ fontSize: 22, fontWeight: 700, color: '#f1f5f9', marginBottom: 8 }}>Windows</h2>
-            <p style={{ fontSize: 14, color: '#64748b', marginBottom: 24 }}>Windows 10 / 11 (x64)</p>
-            <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 10, padding: 16, marginBottom: 24 }}>
-              <p style={{ fontSize: 13, color: '#94a3b8', lineHeight: 1.7, textAlign: 'left' }}>
-                • Download the .exe installer<br />
-                • Run the installer<br />
-                • Launch from Start Menu<br />
-                • Sign in through your browser
-              </p>
-            </div>
-            <a href={DOWNLOAD_URLS.windows} download className="btn btn-primary btn-lg" style={{ width: '100%', display: 'inline-block' }}>
-              ⬇ Download for Windows
-            </a>
-            <p style={{ fontSize: 12, color: '#475569', marginTop: 12 }}>Version {APP_VERSION} • .exe installer</p>
-          </div>
-
-          {/* macOS */}
-          <div style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: '40px 28px', textAlign: 'center' }}>
-            <span style={{ fontSize: 48, display: 'block', marginBottom: 20 }}>🍎</span>
-            <h2 style={{ fontSize: 22, fontWeight: 700, color: '#f1f5f9', marginBottom: 8 }}>macOS</h2>
-            <p style={{ fontSize: 14, color: '#64748b', marginBottom: 8 }}>macOS 12+</p>
-
-            {/* Chip selector hint */}
-            <div style={{ background: 'rgba(99,179,237,0.06)', border: '1px solid rgba(99,179,237,0.15)', borderRadius: 8, padding: '10px 14px', marginBottom: 20, fontSize: 12, color: '#94a3b8', textAlign: 'left' }}>
-              💡 <strong style={{ color: '#63b3ed' }}>Not sure which to pick?</strong><br />
-              M1 / M2 / M3 / M4 Mac → <strong style={{ color: '#e2e8f0' }}>Apple Silicon (arm64)</strong><br />
-              Older Intel Mac → <strong style={{ color: '#e2e8f0' }}>Intel (x64)</strong>
-            </div>
-
-            <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 10, padding: 16, marginBottom: 20 }}>
-              <p style={{ fontSize: 13, color: '#94a3b8', lineHeight: 1.7, textAlign: 'left' }}>
-                • Download the .dmg file<br />
-                • Drag to Applications folder<br />
-                • <strong style={{ color: '#e2e8f0' }}>Right-click → Open</strong> on first launch<br />
-                • Sign in through your browser
-              </p>
-            </div>
-
-            {/* Apple Silicon */}
-            <a href={DOWNLOAD_URLS.macArm} download className="btn btn-primary btn-lg" style={{ width: '100%', display: 'inline-block', marginBottom: 10 }}>
-              ⬇ Download for Apple Silicon
-            </a>
-
-            {/* Intel */}
-            <a href={DOWNLOAD_URLS.macIntel} download className="btn btn-outline btn-lg" style={{ width: '100%', display: 'inline-block' }}>
-              ⬇ Download for Intel Mac
-            </a>
-
-            <p style={{ fontSize: 12, color: '#475569', marginTop: 12 }}>Version {APP_VERSION} • .dmg disk image</p>
-          </div>
-        </div>
-
-        {/* First launch instructions for Mac */}
-        <div style={{ maxWidth: 600, margin: '32px auto 0', background: 'rgba(245,158,11,0.05)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 12, padding: '20px 28px' }}>
-          <h3 style={{ fontSize: 14, fontWeight: 600, color: '#f59e0b', marginBottom: 10 }}>⚠️ macOS First Launch — Important</h3>
-          <p style={{ fontSize: 13, color: '#94a3b8', lineHeight: 1.8, marginBottom: 12 }}>
-            macOS may show <em>"UpNod is damaged and can't be opened"</em> — this is a Gatekeeper security warning, not actual damage.
-          </p>
-          <p style={{ fontSize: 13, color: '#e2e8f0', fontWeight: 600, marginBottom: 6 }}>Fix it in 2 steps:</p>
-          <div style={{ background: 'rgba(0,0,0,0.3)', borderRadius: 8, padding: '10px 14px', marginBottom: 10, fontFamily: 'monospace', fontSize: 13, color: '#68d391' }}>
-            xattr -cr /Applications/UpNod.app
-          </div>
-          <p style={{ fontSize: 13, color: '#94a3b8', lineHeight: 1.7 }}>
-            1. Open <strong style={{ color: '#e2e8f0' }}>Terminal</strong> (search in Spotlight with ⌘+Space)<br />
-            2. Paste the command above and press <strong style={{ color: '#e2e8f0' }}>Enter</strong><br />
-            3. Open UpNod normally — done ✅
-          </p>
-        </div>
-
-        {/* System requirements */}
-        <div style={{ maxWidth: 600, margin: '24px auto 0', textAlign: 'center', background: 'rgba(59,130,246,0.05)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: 12, padding: '24px 32px' }}>
-          <h3 style={{ fontSize: 16, fontWeight: 600, color: '#f1f5f9', marginBottom: 8 }}>System Requirements</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13, color: '#94a3b8', textAlign: 'left' }}>
-            <div>
-              <strong style={{ color: '#e2e8f0' }}>Windows:</strong><br />
-              Windows 10/11 x64<br />4 GB RAM minimum<br />50 MB disk space
-            </div>
-            <div>
-              <strong style={{ color: '#e2e8f0' }}>macOS:</strong><br />
-              macOS 12+ (Intel or Apple Silicon)<br />4 GB RAM minimum<br />50 MB disk space
-            </div>
-          </div>
-        </div>
+        <DownloadContent />
       </main>
       <Footer />
     </>

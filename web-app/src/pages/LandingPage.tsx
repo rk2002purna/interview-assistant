@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import Header from '../components/Header';
 import Footer from '../components/Footer';
 import { listPacks } from '../api/client';
+import { DownloadContent } from './DownloadPage';
 
 export default function LandingPage() {
   const [packs, setPacks] = useState<any[]>([]);
@@ -23,7 +24,11 @@ export default function LandingPage() {
         <PricingSection packs={packs} />
         <InvisibleSection />
         {/* <TestimonialsSection /> */}
-        <DownloadSection />
+        <section id="download" className="section">
+          <div className="container">
+            <DownloadContent compact />
+          </div>
+        </section>
         <FAQSection />
         <CTASection />
       </main>
@@ -587,70 +592,6 @@ function InvisibleSection() {
 //     </section>
 //   );
 // }
-
-/* ===== Download ===== */
-const DOWNLOAD_URLS = {
-  windows: 'https://github.com/rk2002purna/interview-assistant/releases/latest/download/UpNod-Setup-1.0.0.exe',
-  mac: 'https://github.com/rk2002purna/interview-assistant/releases/latest/download/UpNod-1.0.0.dmg',
-};
-
-function DownloadSection() {
-  return (
-    <section id="download" className="section">
-      <div className="container" style={{ textAlign: 'center' as const }}>
-        <span className="section-label">Download</span>
-        <h2 className="section-title" style={{ maxWidth: 600, margin: '0 auto 16px' }}>
-          Get UpNod
-        </h2>
-        <p className="section-subtitle" style={{ margin: '0 auto 48px' }}>
-          Available for Windows and macOS. Free download with 3 starter sessions included.
-        </p>
-
-        <div style={dl.grid}>
-          <div style={dl.card}>
-            <span style={dl.osIcon}>🪟</span>
-            <h3 style={dl.osName}>Windows</h3>
-            <p style={dl.osVer}>Windows 10 / 11 (x64)</p>
-            <a href={DOWNLOAD_URLS.windows} download className="btn btn-primary btn-lg" style={{ marginTop: 16, display: 'inline-block' }}>
-              ⬇ Download for Windows
-            </a>
-            <p style={dl.size}>v1.0.0 • .exe installer</p>
-          </div>
-          <div style={dl.card}>
-            <span style={dl.osIcon}>🍎</span>
-            <h3 style={dl.osName}>macOS</h3>
-            <p style={dl.osVer}>macOS 12+ (Apple Silicon & Intel)</p>
-            <a href={DOWNLOAD_URLS.mac} download className="btn btn-primary btn-lg" style={{ marginTop: 16, display: 'inline-block' }}>
-              ⬇ Download for macOS
-            </a>
-            <p style={dl.size}>v1.0.0 • .dmg disk image</p>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-const dl: Record<string, React.CSSProperties> = {
-  grid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-    gap: 24,
-    maxWidth: 600,
-    margin: '0 auto',
-  },
-  card: {
-    background: 'rgba(255, 255, 255, 0.025)',
-    border: '1px solid rgba(255, 255, 255, 0.08)',
-    borderRadius: 16,
-    padding: '40px 24px',
-    textAlign: 'center' as const,
-  },
-  osIcon: { fontSize: 42, display: 'block', marginBottom: 16 },
-  osName: { fontSize: 20, fontWeight: 700, color: '#f1f5f9', marginBottom: 6 },
-  osVer: { fontSize: 14, color: '#64748b', marginBottom: 4 },
-  size: { fontSize: 12, color: '#475569', marginTop: 12 },
-};
 
 /* ===== FAQ ===== */
 function FAQSection() {
