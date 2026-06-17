@@ -12,7 +12,9 @@
       "Bash(echo \"exit: $?\")",
       "Bash(git push *)",
       "Bash(npx tsc *)",
-      "Bash(npx vite *)"
+      "Bash(npx vite *)",
+      "Bash(git commit -m 'Redesign download UI and integrate into landing page *)",
+      "Bash(git commit -m 'Detect user OS to show correct Recommended badge *)"
     ]
   }
 }
