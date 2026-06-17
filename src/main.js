@@ -107,7 +107,7 @@ function createMainWindow() {
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: true,
-    icon: path.join(__dirname, '..', 'build', 'icon.png'),
+    icon: path.join(__dirname, 'assets', 'icon.png'),
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
@@ -142,7 +142,7 @@ function createSettingsWindow() {
   settingsWindow = new BrowserWindow({
     width: 500,
     height: 520,
-    icon: path.join(__dirname, '..', 'build', 'icon.png'),
+    icon: path.join(__dirname, 'assets', 'icon.png'),
     frame: false,
     transparent: true,
     skipTaskbar: true,
