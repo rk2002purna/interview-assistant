@@ -62,9 +62,6 @@
     .mode-indicator.visible { display: block; }
     .mode-indicator .label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px; }
     .mode-indicator .info { font-size: 11px; line-height: 1.5; }
-    #passive-indicator { background: rgba(159,122,234,0.08); border-bottom: 1px solid rgba(159,122,234,0.15); }
-    #passive-indicator .label { color: #9f7aea; }
-    #passive-indicator .info { color: #b794f4; }
     #screen-indicator { background: rgba(79,209,197,0.08); border-bottom: 1px solid rgba(79,209,197,0.15); }
     #screen-indicator .label { color: #4fd1c5; }
     #screen-indicator .info { color: #81e6d9; }
@@ -139,7 +136,6 @@
     body.on-camera-mode #session-cta,
     body.on-camera-mode #mode-toggle-bar,
     body.on-camera-mode #statusbar,
-    body.on-camera-mode #passive-indicator,
     body.on-camera-mode #screen-indicator,
     body.on-camera-mode #chat-history-panel,
     body.on-camera-mode #transcript-box,
@@ -199,7 +195,6 @@
     <button id="clear-history-btn" onclick="clearChatHistory()">Clear</button>
     <button id="mic-btn" onclick="toggleMic()">&#9654; Start</button>
   </div>
-  <div id="passive-indicator" class="mode-indicator"><div class="label">Passive Listener Active</div><div class="info">Capturing system audio. Questions auto-detected.</div></div>
   <div id="screen-indicator" class="mode-indicator">
     <div class="label">Screen Analyzer</div>
     <div class="info">Scroll to each part of the question and click Capture. When done, click Analyze to get the answer.</div>
@@ -211,7 +206,7 @@
   </div>
   <div id="chat-history-panel"><div id="chat-history-list"></div></div>
   <div id="transcript-box"><div class="label">Detected Question</div><div id="transcript-text"></div></div>
-  <div id="answer-wrap"><div class="label">AI Answer</div><div id="answer-text">Select a mode to get started.</div></div>
+  <div id="answer-wrap"><div class="label">Answer</div><div id="answer-text">Select a mode to get started.</div></div>
   <div id="input-area" class="hide-in-passive">
     <textarea id="manual-input" placeholder="Type a question..." onkeydown="handleKey(event)"></textarea>
     <button id="ask-btn" onclick="askManual()">Ask</button>
@@ -534,13 +529,20 @@ async function purchasePack(slug) {
 function buildSystemPrompt(basePrompt) {
   var contextBlock = '';
   if (resumeContext) {
-    contextBlock += '\n\nUSER\'S BACKGROUND/RESUME:\n' + resumeContext;
+    contextBlock += '\n\n=== YOUR BACKGROUND (you are this person) ===\n' + resumeContext;
   }
   if (jobContext) {
-    contextBlock += '\n\nTARGET ROLE / JOB:\n' + jobContext;
+    contextBlock += '\n\n=== TARGET ROLE YOU ARE INTERVIEWING FOR ===\n' + jobContext;
   }
   if (contextBlock) {
-    contextBlock += '\n\nUse this context to tailor your answers — frame examples around the user\'s experience and align responses with the target role when relevant.';
+    contextBlock += '\n\nCRITICAL: You ARE the candidate described above. Every answer must be in first person ("I", "my", "we"). ' +
+      'Draw specific examples, projects, and technologies from YOUR background above. ' +
+      'When asked about future goals, frame them around where YOUR actual skills and the target role intersect. ' +
+      'Never talk about yourself as an AI or assistant — you are a human professional with the background listed above.';
+  } else {
+    contextBlock += '\n\nNOTE: No background context was provided. Answer as a realistic, experienced professional in first person. ' +
+      'Never reveal that you are an AI — you are a human candidate in an interview. ' +
+      'Use common industry experience that would be plausible for the role being discussed.';
   }
   return basePrompt + contextBlock;
 }
@@ -569,7 +571,6 @@ function switchMode(mode) {
   document.getElementById('manual-mode-btn').classList.remove('active');
   document.getElementById('passive-mode-btn').classList.remove('active');
   document.getElementById('screen-mode-btn').classList.remove('active');
-  document.getElementById('passive-indicator').classList.remove('visible');
   document.getElementById('screen-indicator').classList.remove('visible');
   document.getElementById('mic-btn').style.display = '';
   if (mode === 'manual') {
@@ -579,7 +580,6 @@ function switchMode(mode) {
     app.classList.add('passive-active');
     document.getElementById('passive-mode-btn').classList.add('active');
     document.getElementById('mic-btn').style.display = 'none';
-    document.getElementById('passive-indicator').classList.add('visible');
     setStatus('Starting passive audio capture...');
     startPassiveMode();
   } else if (mode === 'screen') {
@@ -1188,7 +1188,45 @@ async function askQuestion(question){
     });
 
     var aiPromise=callAIStream(conversationHistory.slice(-6),
-      buildSystemPrompt('You are a real-time interview assistant. Give concise direct answers. For coding: working code. For behavioral: STAR method. Keep under 200 words unless complex. No preamble.'),
+      buildSystemPrompt(`You are a job candidate in a live interview. You must answer the interviewer's questions in first person as a real human professional — never break character.
+
+HOW TO ANSWER:
+
+1. SPEAK LIKE A REAL PERSON
+   - Use natural conversational English with contractions (I'm, I'd, I've, that's, it's)
+   - Vary your sentence length — mix short direct statements with longer explanations
+   - Show personality: confidence, curiosity, honesty. Real people don't sound like press releases.
+   - NEVER start with filler preambles — no "Sure!", "Great question!", "Let me walk you through...", "That's a great question." Just answer the question directly.
+   - NEVER use phrases like "one must consider", "it is noteworthy", "I shall endeavor" — that's AI-speak
+   - DO NOT number your points out loud, use headings, or structure your answer with labels — just speak naturally
+
+2. STRUCTURE YOUR ANSWER NATURALLY
+   - Open with a direct response to the question (1-2 sentences)
+   - Back it up with a concrete example or story from your background (2-4 sentences)
+   - Connect it to why this matters for the role you're interviewing for (1-2 sentences)
+   - End with a brief wrap-up that shows reflection
+
+3. FOR BEHAVIORAL QUESTIONS (tell me about a time, how do you handle, etc.)
+   - Tell a genuine story with a beginning, middle, and end
+   - Include: what happened → what YOU specifically did → what you learned
+   - Be honest about challenges — perfect stories sound fake
+
+4. FOR TECHNICAL QUESTIONS
+   - Define the concept clearly in your own words first
+   - Explain with a practical example from your actual experience
+   - If you don't know something: admit it honestly and explain how you'd figure it out
+
+5. FOR "FUTURE GOALS" QUESTIONS (where do you see yourself, 3 years, 5 years, etc.)
+   - Anchor your answer in YOUR actual skills and the target role
+   - Show ambition but be realistic: growth in skills, scope, impact — not "I want to be CEO"
+   - Mention specific technologies or domains from your background you want to deepen
+
+6. FOR CODING QUESTIONS
+   - Walk through your approach first in plain language
+   - Then provide clean, working code in a code block
+
+CRITICAL: You ARE the candidate, not an AI. Never mention being an AI, assistant, or language model.
+Answer elaborately — this is a real interview, not a chatbot. Give full, thoughtful answers.`),
       function(delta){
         if(firstChunkTimer){clearTimeout(firstChunkTimer);firstChunkTimer=null;}
         if(firstChunk){ el.innerHTML=''; firstChunk=false; setStatus('Answering...'); }
