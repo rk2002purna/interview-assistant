@@ -2,15 +2,38 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
-  <title>Settings — Interview Assistant</title>
+  <title>Settings — UpNod</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: #0d1117;
+      background: rgba(15,15,25,0.95);
       color: #e2e8f0;
-      padding: 24px;
+      user-select: none;
+      border: 1px solid rgba(99,179,237,0.15);
+      border-radius: 10px;
+      height: 100vh;
+      overflow: hidden;
     }
+    #titlebar {
+      -webkit-app-region: drag;
+      background: transparent;
+      padding: 8px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    #titlebar .title { font-size: 12px; color: #a0aec0; font-weight: 600; }
+    .win-btn {
+      -webkit-app-region: no-drag;
+      width: 20px; height: 20px; border-radius: 50%; border: none;
+      cursor: pointer; font-size: 10px; display: flex; align-items: center;
+      justify-content: center; transition: opacity 0.2s;
+    }
+    .win-btn:hover { opacity: 0.8; }
+    .btn-close { background: #fc5c65; color: #7a0000; }
+    #content { padding: 20px 24px 24px; overflow-y: auto; height: calc(100vh - 40px); }
     h1 { font-size: 18px; color: #63b3ed; margin-bottom: 4px; }
     .sub { font-size: 12px; color: #4a5568; margin-bottom: 24px; }
 
@@ -66,6 +89,12 @@
       border: 1px solid rgba(255,255,255,0.1);
       color: #a0aec0;
     }
+    button.danger {
+      background: linear-gradient(135deg, #e53e3e, #c53030);
+    }
+    button.success {
+      background: linear-gradient(135deg, #38a169, #2f855a);
+    }
 
     #save-msg {
       display: none;
@@ -83,100 +112,123 @@
       color: #9ae6b4;
       line-height: 1.6;
     }
+
+    /* Account info card */
+    .account-card {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+    .account-avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #4299e1, #805ad5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      font-weight: 700;
+      color: white;
+      flex-shrink: 0;
+    }
+    .account-details {
+      flex: 1;
+      min-width: 0;
+    }
+    .account-email {
+      font-size: 14px;
+      font-weight: 600;
+      color: #e2e8f0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .account-role {
+      font-size: 11px;
+      color: #a0aec0;
+      margin-top: 2px;
+    }
+    .entitlement-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .entitlement-badge.sessions {
+      background: rgba(66,153,225,0.15);
+      border: 1px solid rgba(66,153,225,0.3);
+      color: #90cdf4;
+    }
+    .entitlement-badge.lifetime {
+      background: rgba(128,90,213,0.15);
+      border: 1px solid rgba(128,90,213,0.3);
+      color: #d6bcfa;
+    }
+
+    .account-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+    .account-actions button {
+      font-size: 12px;
+      padding: 7px 14px;
+    }
+
+    #admin-link {
+      display: none;
+    }
+
+    .hidden { display: none !important; }
+
+    /* Custom scrollbar — matches app dark theme */
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(99,179,237,0.15); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(99,179,237,0.25); }
   </style>
 </head>
 <body>
+  <div id="titlebar">
+    <span class="title">Settings</span>
+    <button class="win-btn btn-close" onclick="window.close()" title="Close">&#10005;</button>
+  </div>
+  <div id="content">
   <h1>⚙️ Settings</h1>
-  <p class="sub">Configure your Interview Assistant</p>
+  <p class="sub">Configure your UpNod</p>
 
-  <div class="section">
-    <h2>💬 Text Q&A Model (Manual / Passive)</h2>
-    <label>Primary Provider</label>
-    <select id="text-primary-provider" onchange="updateModelDropdown('text-primary')">
-      <option value="gemini">🟢 Gemini</option>
-      <option value="groq">🟠 Groq</option>
-      <option value="cerebras">🟣 Cerebras</option>
-      <option value="deepseek">🔵 DeepSeek</option>
-    </select>
-    <br/>
-    <label>Primary Model</label>
-    <select id="text-primary-model"></select>
-
-    <br/>
-    <label>Fallback Provider <span style="color:#4a5568">(used if primary fails)</span></label>
-    <select id="text-fallback-provider" onchange="updateModelDropdown('text-fallback')">
-      <option value="">— None —</option>
-      <option value="gemini">🟢 Gemini</option>
-      <option value="groq">🟠 Groq</option>
-      <option value="cerebras">🟣 Cerebras</option>
-      <option value="deepseek">🔵 DeepSeek</option>
-    </select>
-    <br/>
-    <label>Fallback Model</label>
-    <select id="text-fallback-model"></select>
-    <p class="hint">If the primary returns an error (rate limit, quota, outage), the fallback is tried automatically.</p>
+  <!-- Account Info Section -->
+  <div class="section" id="account-section">
+    <h2>👤 Account</h2>
+    <div class="account-card">
+      <div class="account-avatar" id="account-avatar">?</div>
+      <div class="account-details">
+        <div class="account-email" id="account-email">Loading...</div>
+        <div class="account-role" id="account-role"></div>
+      </div>
+      <div id="entitlement-container">
+        <span class="entitlement-badge sessions" id="entitlement-badge">
+          <span id="entitlement-text">—</span>
+        </span>
+      </div>
+    </div>
+    <div class="account-actions">
+      <button class="success" id="buy-sessions-btn" onclick="buyMoreSessions()">🛒 Buy More Sessions</button>
+      <button class="secondary" onclick="downloadChatHistory()">💾 Download Chat History</button>
+      <button class="secondary" id="admin-link" onclick="openAdminDashboard()">🔧 Open Admin Dashboard</button>
+      <button class="danger" id="sign-out-btn" onclick="signOut()">🚪 Sign Out</button>
+    </div>
   </div>
 
-  <div class="section">
-    <h2>👁 Screen Analyzer Model (Vision)</h2>
-    <label>Primary Provider</label>
-    <select id="vision-primary-provider" onchange="updateModelDropdown('vision-primary')">
-      <option value="gemini">🟢 Gemini</option>
-      <option value="groq">🟠 Groq</option>
-    </select>
-    <br/>
-    <label>Primary Model</label>
-    <select id="vision-primary-model"></select>
+  <!-- Model routing is now managed by admin only -->
 
-    <br/>
-    <label>Fallback Provider</label>
-    <select id="vision-fallback-provider" onchange="updateModelDropdown('vision-fallback')">
-      <option value="">— None —</option>
-      <option value="gemini">🟢 Gemini</option>
-      <option value="groq">🟠 Groq</option>
-    </select>
-    <br/>
-    <label>Fallback Model</label>
-    <select id="vision-fallback-model"></select>
-    <p class="hint">DeepSeek and Cerebras don't support vision. Use Gemini or Groq for screen analysis.</p>
-  </div>
-
-  <div class="section" id="gemini-section">
-    <h2>🟢 Gemini API Key</h2>
-    <label>Gemini API Key (stored locally on your machine only)</label>
-    <input type="password" id="gemini-api-key" placeholder="AIza..." />
-    <p class="hint">
-      Get a free key at <a href="#" onclick="openExternal('https://aistudio.google.com/apikey')">aistudio.google.com/apikey</a>
-    </p>
-  </div>
-
-  <div class="section">
-    <h2>🔑 Groq API Key</h2>
-    <label>Groq API Key (also required for voice transcription)</label>
-    <input type="password" id="api-key" placeholder="gsk_..." />
-    <p class="hint">
-      Get a free key at <a href="#" onclick="openExternal('https://console.groq.com')">console.groq.com</a> — used for voice-to-text and optionally for chat/vision.
-    </p>
-  </div>
-
-  <div class="section" id="deepseek-section">
-    <h2>🔵 DeepSeek API Key</h2>
-    <label>DeepSeek API Key (stored locally on your machine only)</label>
-    <input type="password" id="deepseek-api-key" placeholder="sk-..." />
-    <p class="hint">
-      Get your key at <a href="#" onclick="openExternal('https://platform.deepseek.com')">platform.deepseek.com</a>
-    </p>
-  </div>
-
-  <div class="section" id="cerebras-section">
-    <h2>🟣 Cerebras API Key</h2>
-    <label>Cerebras API Key — fastest text inference (stored locally on your machine only)</label>
-    <input type="password" id="cerebras-api-key" placeholder="csk-..." />
-    <p class="hint">
-      Get a free key at <a href="#" onclick="openExternal('https://cloud.cerebras.ai')">cloud.cerebras.ai</a> — text-only (no vision).
-    </p>
-  </div>
-
+  <!-- Resume / Job Context Section (preserved) -->
   <div class="section">
     <h2>📝 Your Context (Optional)</h2>
     <label>Resume / Background (paste key points)</label>
@@ -188,11 +240,23 @@
     <textarea id="job-context" placeholder="e.g. Senior Frontend Engineer at a fintech startup, React, TypeScript, Node.js..."></textarea>
   </div>
 
+  <!-- Display Mode Section -->
+  <div class="section">
+    <h2>🎥 Display Mode</h2>
+    <label>How should answers be displayed?</label>
+    <select id="display-mode">
+      <option value="manual">Manual — Normal window (drag anywhere)</option>
+      <option value="on-camera">On Camera — Stick below webcam (top-center, auto-resize)</option>
+    </select>
+    <div class="hint">
+      "On Camera" mode pins the answer just below your webcam so you can read it while looking at the camera. The window auto-resizes based on answer length.
+    </div>
+  </div>
+
   <div class="section">
     <h2>🛡️ Privacy Info</h2>
     <div class="privacy-info">
       ✅ <strong>Invisible on screen share</strong> — uses OS-level window protection<br/>
-      ✅ <strong>API key stored locally</strong> — never sent anywhere except Anthropic<br/>
       ✅ <strong>No data logging</strong> — conversations stay in memory only<br/>
       ✅ <strong>Hidden from taskbar & dock</strong> on macOS
     </div>
@@ -205,6 +269,8 @@
   <div id="save-msg">✅ Settings saved successfully!</div>
 
 <script>
+  // Use the new namespaced API; fall back to legacy ipcRenderer for backward compat
+  const api = window.interviewAssistantApi;
   const { ipcRenderer } = require('electron');
   const { shell } = require('electron');
 
@@ -284,80 +350,195 @@
   }
 
   function updateModelDropdown(prefix) {
-    // prefix is one of: 'text-primary', 'text-fallback', 'vision-primary', 'vision-fallback'
     const provider = document.getElementById(prefix + '-provider').value;
     const capability = prefix.startsWith('vision') ? 'vision' : 'text';
     populateModels(prefix + '-model', provider, capability);
   }
 
+  // ── Account & Entitlement ─────────────────────────────────────────────────
+
+  function tryGetUser() {
+    // Try the namespaced API first; fall back to direct IPC invoke.
+    // Wrap each attempt so rejections or missing API never crash us.
+    return new Promise((resolve) => {
+      var settled = false;
+      function done(u) { if (!settled) { settled = true; resolve(u); } }
+
+      // Approach 1: namespaced API
+      if (api && api.auth && typeof api.auth.getCurrentUser === 'function') {
+        api.auth.getCurrentUser()
+          .then(function(u) { if (u) done(u); })
+          .catch(function() {});
+      }
+
+      // Approach 2: direct IPC invoke (catches the case where api is undefined)
+      try {
+        ipcRenderer.invoke('auth:getCurrentUser')
+          .then(function(u) { if (u) done(u); })
+          .catch(function() {});
+      } catch (_) {}
+
+      // Approach 3: timeout safety net — guarantees we resolve within 2 seconds
+      setTimeout(function() { done(null); }, 2000);
+    });
+  }
+
+  async function loadAccountInfo() {
+    var emailEl = document.getElementById('account-email');
+    var roleEl = document.getElementById('account-role');
+    var avatarEl = document.getElementById('account-avatar');
+
+    try {
+      var user = await tryGetUser();
+
+      if (user) {
+        var displayName = user.displayName || user.email;
+        emailEl.textContent = displayName;
+        roleEl.textContent = user.role === 'admin' ? 'Administrator — ' + user.email : user.email;
+        avatarEl.textContent = displayName.charAt(0).toUpperCase();
+
+        if (user.role === 'admin') {
+          document.getElementById('admin-link').style.display = 'inline-flex';
+        }
+      } else {
+        emailEl.textContent = 'Not signed in';
+        roleEl.textContent = '';
+        avatarEl.textContent = '?';
+      }
+    } catch (err) {
+      console.error('Failed to display account info:', err);
+      emailEl.textContent = 'Error loading account';
+      roleEl.textContent = '';
+      avatarEl.textContent = '?';
+    }
+  }
+
+  async function loadEntitlement() {
+    try {
+      if (!api || !api.entitlement) return;
+      const ent = await api.entitlement.get();
+      const badge = document.getElementById('entitlement-badge');
+      const text = document.getElementById('entitlement-text');
+
+      if (ent && ent.lifetime_flag) {
+        badge.className = 'entitlement-badge lifetime';
+        text.textContent = '♾️ Lifetime Access';
+      } else if (ent) {
+        badge.className = 'entitlement-badge sessions';
+        const count = ent.session_count || 0;
+        text.textContent = count + ' session' + (count !== 1 ? 's' : '') + ' remaining';
+      }
+    } catch (err) {
+      console.error('Failed to load entitlement:', err);
+    }
+  }
+
+  async function buyMoreSessions() {
+    // Open the web app pricing page in the browser.
+    // The user can select a pack and complete payment via UPI.
+    try {
+      shell.openExternal('https://upnod.referconnect.in/pricing');
+    } catch (err) {
+      console.error('Failed to open pricing page:', err);
+    }
+  }
+
+  async function downloadChatHistory() {
+    try {
+      const history = await ipcRenderer.invoke('get-chat-history');
+      if (!history || history.length === 0) {
+        alert('No chat history to download. Ask some questions first!');
+        return;
+      }
+
+      // Format chat as readable text
+      var text = '';
+      for (var i = 0; i < history.length; i++) {
+        var msg = history[i];
+        var prefix = msg.role === 'user' ? 'Q' : 'A';
+        var content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+        text += prefix + ': ' + content + '\n\n';
+      }
+
+      var ts = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+      var result = await ipcRenderer.invoke('save-file-dialog', {
+        defaultName: 'interview-chat-' + ts + '.txt',
+        content: text
+      });
+
+      if (result && !result.canceled && result.filePath) {
+        alert('Chat history saved to ' + result.filePath);
+      }
+    } catch (err) {
+      console.error('Failed to download chat history:', err);
+      alert('Failed to save chat history: ' + (err.message || 'Unknown error'));
+    }
+  }
+
+  async function signOut() {
+    // Fire-and-forget: send logout request to main process and close immediately.
+    // Using ipcRenderer.send (not invoke) so we don't wait for a response.
+    ipcRenderer.send('logout-request');
+    window.close();
+  }
+
+  function openAdminDashboard() {
+    // Open admin dashboard in external browser (R3.5)
+    shell.openExternal(getAdminDashboardUrl());
+  }
+
+  function getAdminDashboardUrl() {
+    return 'https://admin.referconnect.in';
+  }
+
+  // ── Config Load / Save ────────────────────────────────────────────────────
+
   async function load() {
-    const config = await ipcRenderer.invoke('load-config');
+    // Load account info first (doesn't depend on config) and in parallel with config
+    const accountPromise = loadAccountInfo();
+    const entitlementPromise = loadEntitlement();
 
-    // API keys
-    if (config.apiKey) document.getElementById('api-key').value = config.apiKey;
-    if (config.geminiApiKey) document.getElementById('gemini-api-key').value = config.geminiApiKey;
-    if (config.deepseekApiKey) document.getElementById('deepseek-api-key').value = config.deepseekApiKey;
-    if (config.cerebrasApiKey) document.getElementById('cerebras-api-key').value = config.cerebrasApiKey;
+    try {
+      const config = api && api.config ? await api.config.load() : {};
 
-    // Other config
-    if (config.resumeContext) document.getElementById('resume-context').value = config.resumeContext;
-    if (config.jobContext) document.getElementById('job-context').value = config.jobContext;
+      // Context fields
+      if (config && config.resumeContext) document.getElementById('resume-context').value = config.resumeContext;
+      if (config && config.jobContext) document.getElementById('job-context').value = config.jobContext;
 
-    // Routing config (with sensible defaults)
-    const routing = config.routing || {};
-    const textPrimary = routing.textPrimary || { provider: 'gemini', model: 'gemini-flash-latest' };
-    const textFallback = routing.textFallback || { provider: 'groq', model: 'llama-3.3-70b-versatile' };
-    const visionPrimary = routing.visionPrimary || { provider: 'gemini', model: 'gemini-flash-latest' };
-    const visionFallback = routing.visionFallback || { provider: 'groq', model: 'meta-llama/llama-4-scout-17b-16e-instruct' };
+      // Display mode
+      if (config && config.displayMode) document.getElementById('display-mode').value = config.displayMode;
+    } catch (err) {
+      console.error('Failed to load config:', err);
+    }
 
-    document.getElementById('text-primary-provider').value = textPrimary.provider;
-    updateModelDropdown('text-primary');
-    document.getElementById('text-primary-model').value = textPrimary.model;
-
-    document.getElementById('text-fallback-provider').value = textFallback.provider || '';
-    updateModelDropdown('text-fallback');
-    if (textFallback.model) document.getElementById('text-fallback-model').value = textFallback.model;
-
-    document.getElementById('vision-primary-provider').value = visionPrimary.provider;
-    updateModelDropdown('vision-primary');
-    document.getElementById('vision-primary-model').value = visionPrimary.model;
-
-    document.getElementById('vision-fallback-provider').value = visionFallback.provider || '';
-    updateModelDropdown('vision-fallback');
-    if (visionFallback.model) document.getElementById('vision-fallback-model').value = visionFallback.model;
+    // Wait for account/entitlement to finish (they run in parallel)
+    try { await accountPromise; } catch {}
+    try { await entitlementPromise; } catch {}
   }
 
   function save() {
-    const routing = {
-      textPrimary: {
-        provider: document.getElementById('text-primary-provider').value,
-        model: document.getElementById('text-primary-model').value
-      },
-      textFallback: {
-        provider: document.getElementById('text-fallback-provider').value,
-        model: document.getElementById('text-fallback-model').value
-      },
-      visionPrimary: {
-        provider: document.getElementById('vision-primary-provider').value,
-        model: document.getElementById('vision-primary-model').value
-      },
-      visionFallback: {
-        provider: document.getElementById('vision-fallback-provider').value,
-        model: document.getElementById('vision-fallback-model').value
-      }
-    };
-
     const config = {
-      apiKey: document.getElementById('api-key').value.trim(),
-      geminiApiKey: document.getElementById('gemini-api-key').value.trim(),
-      deepseekApiKey: document.getElementById('deepseek-api-key').value.trim(),
-      cerebrasApiKey: document.getElementById('cerebras-api-key').value.trim(),
       resumeContext: document.getElementById('resume-context').value.trim(),
       jobContext: document.getElementById('job-context').value.trim(),
-      routing: routing
+      displayMode: document.getElementById('display-mode').value
     };
 
-    ipcRenderer.send('save-config', config);
+    // Preserve existing routing config (managed by admin, not editable here)
+    if (api && api.config) {
+      api.config.load().then(function(existing) {
+        if (existing && existing.routing) {
+          config.routing = existing.routing;
+        }
+        api.config.save(config);
+      }).catch(function() {
+        api.config.save(config);
+      });
+    } else {
+      // Fallback: save via legacy IPC without routing
+      ipcRenderer.send('save-config', config);
+    }
+
+    // Notify main window about config change
     ipcRenderer.send('config-changed-broadcast');
 
     const msg = document.getElementById('save-msg');
@@ -369,9 +550,22 @@
     shell.openExternal(url);
   }
 
-  ipcRenderer.on('config-saved', () => {});
+  // Listen for entitlement changes while settings is open
+  if (api && api.entitlement && api.entitlement.onChanged) {
+    api.entitlement.onChanged(() => loadEntitlement());
+  }
+
+  // Listen for auth changes (e.g. sign-out from elsewhere)
+  if (api && api.auth && api.auth.onAuthChanged) {
+    api.auth.onAuthChanged((state) => {
+      if (state === 'logged-out') {
+        window.close();
+      }
+    });
+  }
 
   load();
 </script>
+  </div><!-- #content -->
 </body>
 </html>

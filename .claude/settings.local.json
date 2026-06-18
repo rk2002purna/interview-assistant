@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(powershell -Command \"Invoke-RestMethod -Uri 'https://api.opencode.ai/zen/v1/models' -Method Get -Headers @{'x-api-key'='sk-1vsO3sz2caWf1mFzmw6Il802GDPOwaN6blZfZv8wiiVWO5FSQKVCH9ox1b6tKcqD' }\")",
+      "Bash(powershell -Command \"Invoke-RestMethod -Uri 'https://api.opencode.ai/v1/models' -Method Get -Headers @{'x-api-key'='sk-1vsO3sz2caWf1mFzmw6Il802GDPOwaN6blZfZv8wiiVWO5FSQKVCH9ox1b6tKcqD'; 'Content-Type'='application/json' }\")",
+      "Bash(curl -s \"https://api.opencode.ai/v1/models\" -H \"x-api-key: sk-1vsO3sz2caWf1mFzmw6Il802GDPOwaN6blZfZv8wiiVWO5FSQKVCH9ox1b6tKcqD\")",
+      "Bash(ping api.opencode.ai -n 2)",
+      "Bash(node -e \"const https = require\\('https'\\); const data = JSON.stringify\\({model:'minimax-3.0-flash',max_tokens:100,messages:[{role:'user',content:'hi'}]}\\); const req = https.request\\({hostname:'api.opencode.ai',port:443,path:'/v1/chat/completions',method:'POST',headers:{'Content-Type':'application/json','x-api-key':'sk-1vsO3sz2caWf1mFzmw6Il802GDPOwaN6blZfZv8wiiVWO5FSQKVCH9ox1b6tKcqD','Content-Length':Buffer.byteLength\\(data\\)}},\\(res\\)=>{let d='';res.on\\('data',c=>d+=c\\);res.on\\('end',\\(\\)=>console.log\\(d\\)\\)}\\);req.on\\('error',e=>console.log\\('ERR:'+e.message\\)\\);req.write\\(data\\);req.end\\(\\);\")",
+      "Bash(git add *)",
+      "Bash(git commit -m 'Fix app icon: stop ignoring build/ folder and set window icon at runtime *)",
+      "Bash(git check-ignore *)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(git push *)",
+      "Bash(npx tsc *)",
+      "Bash(npx vite *)",
+      "Bash(git commit -m 'Redesign download UI and integrate into landing page *)",
+      "Bash(git commit -m 'Detect user OS to show correct Recommended badge *)"
+    ]
+  }
+}

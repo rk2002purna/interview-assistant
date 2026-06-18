@@ -1,7 +1,7 @@
 {
-  "name": "interview-assistant",
+  "name": "upnod",
   "version": "1.0.0",
-  "description": "Interview Assistant - AI-powered interview helper",
+  "description": "UpNod - AI-powered interview co-pilot",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
@@ -19,12 +19,14 @@
     "electron-builder": "^25.1.8"
   },
   "build": {
-    "appId": "com.interview.assistant",
-    "productName": "Interview Assistant",
+    "appId": "com.upnod.app",
+    "productName": "UpNod",
+    "icon": "build/icon",
     "directories": {
       "output": "dist"
     },
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -41,23 +43,44 @@
       "allowToChangeInstallationDirectory": false,
       "deleteAppDataOnUninstall": false
     },
+    "protocols": [
+      {
+        "name": "UpNod",
+        "schemes": [
+          "interview-assistant"
+        ]
+      }
+    ],
     "mac": {
+      "icon": "build/icon.icns",
       "target": [
         {
           "target": "dmg",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ],
       "category": "public.app-category.productivity"
     },
     "dmg": {
       "contents": [
-        { "x": 130, "y": 220 },
-        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
     }
   },
   "dependencies": {
+    "resend": "^6.12.3",
     "tesseract.js": "^5.1.1"
   }
 }

@@ -1,15 +1,100 @@
-const { app, BrowserWindow, ipcMain, desktopCapturer, systemPreferences, screen } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu, desktopCapturer, systemPreferences, screen, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const https = require('https');
-const { spawn } = require('child_process');
 const { readActiveWindowText } = require('./screen-reader');
+const { backendRequest } = require('./net/backend-client');
+
+// ── Browser Auth Configuration ─────────────────────────────────────────────
+const WEB_APP_URL = process.env.WEB_APP_URL || 'https://upnod.referconnect.in';
+
+/** Parse interview-assistant://callback?access_token=...&refresh_token=... */
+function handleProtocolUrl(urlStr) {
+  try {
+    const url = new URL(urlStr);
+    if (url.hostname === 'callback') {
+      const accessToken = url.searchParams.get('access_token');
+      const refreshToken = url.searchParams.get('refresh_token');
+
+      if (!accessToken || !refreshToken) {
+        mainWindow?.webContents.send('auth-callback-error', 'Missing tokens in callback URL.');
+        return;
+      }
+
+      // Estimate expires_in from the JWT exp claim
+      let expiresIn = 3600;
+      try {
+        const parts = accessToken.split('.');
+        if (parts.length === 3) {
+          const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+          const payload = JSON.parse(Buffer.from(base64, 'base64').toString());
+          if (payload.exp) {
+            expiresIn = Math.max(60, payload.exp - Math.floor(Date.now() / 1000));
+          }
+        }
+      } catch { /* use default */ }
+
+      authController.handleLoginSuccess({ accessToken, refreshToken, expiresIn });
+
+      // Also persist the email if available from the JWT
+      try {
+        const parts = accessToken.split('.');
+        if (parts.length === 3) {
+          const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+          const payload = JSON.parse(Buffer.from(base64, 'base64').toString());
+          if (payload.email || payload.sub) {
+            const secureStore = require('./auth/secure-store');
+            secureStore.setItem('user_email', payload.email || payload.sub);
+          }
+        }
+      } catch { /* best effort */ }
+
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('auth-callback-success');
+        // Auto-navigate to the main app after a brief delay for the UI to update
+        setTimeout(() => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+          }
+        }, 800);
+      }
+    }
+  } catch {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('auth-callback-error', 'Invalid authentication response from browser.');
+    }
+  }
+}
+
+// ── Single Instance Lock (for protocol URL handling on Windows) ───────────
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, commandLine) => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+    // Windows passes the protocol URL as a command-line argument
+    const url = commandLine.find(arg => arg.startsWith('interview-assistant://'));
+    if (url) handleProtocolUrl(url);
+  });
+}
+
+// macOS: handle protocol URL while app is running
+app.on('open-url', (_event, url) => {
+  handleProtocolUrl(url);
+});
+
+// ── Auth & Session controllers (eagerly required, referenced by handleProtocolUrl) ──
+const authController = require('./auth/auth-controller');
+const { sessionController } = require('./session/session-controller');
+const { checkoutController } = require('./billing/checkout-controller');
+const { setAuthController } = require('./net/backend-client');
 
 let mainWindow;
 let settingsWindow;
-let miniMode = false;
-let savedBounds = null;
 
 function createMainWindow() {
   mainWindow = new BrowserWindow({
@@ -22,6 +107,7 @@ function createMainWindow() {
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: true,
+    icon: path.join(__dirname, 'assets', 'icon.png'),
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
@@ -30,11 +116,12 @@ function createMainWindow() {
     hasShadow: false,
   });
 
-  if (process.platform === 'win32' || process.platform === 'darwin') {
-    mainWindow.setContentProtection(true);
-  }
+  // DEMO MODE: screen hiding disabled so viewers can see the app
+  // if (process.platform === 'win32' || process.platform === 'darwin') {
+  //   mainWindow.setContentProtection(true);
+  // }
 
-  mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  mainWindow.loadFile(path.join(__dirname, 'renderer', 'login.html'));
 
   // Use 'floating' level on macOS for reliable always-on-top behavior
   // 'screen-saver' can conflict with fullscreen apps on macOS
@@ -55,27 +142,67 @@ function createSettingsWindow() {
   if (settingsWindow) { settingsWindow.focus(); return; }
   settingsWindow = new BrowserWindow({
     width: 500,
-    height: 500,
-    title: 'Settings',
-    webPreferences: { nodeIntegration: true, contextIsolation: false }
+    height: 520,
+    icon: path.join(__dirname, 'assets', 'icon.png'),
+    frame: false,
+    transparent: true,
+    skipTaskbar: true,
+    resizable: false,
+    webPreferences: { nodeIntegration: true, contextIsolation: false, preload: path.join(__dirname, 'preload.js') }
   });
   settingsWindow.loadFile(path.join(__dirname, 'renderer', 'settings.html'));
+
+  // DEMO MODE: screen hiding disabled so viewers can see the app
+  // if (process.platform === 'win32' || process.platform === 'darwin') {
+  //   settingsWindow.setContentProtection(true);
+  // }
+
   settingsWindow.on('closed', () => settingsWindow = null);
 }
 
-app.whenReady().then(() => { createMainWindow(); });
+app.whenReady().then(() => {
+  // Remove the default menu bar (File, Edit, View, etc.) from all windows
+  Menu.setApplicationMenu(null);
+
+  createMainWindow();
+
+  // Register custom protocol for browser OAuth callback.
+  // In development we force re-register on every startup because the old
+  // registration may lack the required app-path argument.
+  // We use __dirname/.. (absolute path) because the browser's working dir
+  // is C:\Windows\system32, so a relative '.' would resolve there.
+  if (process.defaultApp) {
+    app.removeAsDefaultProtocolClient('interview-assistant');
+    app.setAsDefaultProtocolClient('interview-assistant', process.execPath, [
+      path.resolve(__dirname, '..'),
+    ]);
+  } else if (!app.isDefaultProtocolClient('interview-assistant')) {
+    app.setAsDefaultProtocolClient('interview-assistant');
+  }
+
+  // Cold start: check for protocol URL in command-line args (all platforms)
+  const url = process.argv.find(arg => arg.startsWith('interview-assistant://'));
+  if (url) {
+    setTimeout(() => handleProtocolUrl(url), 500);
+  }
+});
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createMainWindow(); });
 
 ipcMain.on('open-settings', () => createSettingsWindow());
+
+// ── Mini-mode (collapse to floating yellow button) ──────────────────────────
+let miniMode = false;
+let savedBounds = null;
+
 ipcMain.on('minimize-window', () => {
   if (!mainWindow) return;
   if (!miniMode) {
+    // Save current bounds and switch to mini mode
     savedBounds = mainWindow.getBounds();
-    const display = screen.getDisplayNearestPoint(
-      { x: savedBounds.x, y: savedBounds.y }
-    );
+    const display = screen.getDisplayNearestPoint({ x: savedBounds.x, y: savedBounds.y });
     const { width: screenW, height: screenH, x: screenX, y: screenY } = display.workArea;
+    // Position the mini button at bottom-right of the screen
     const miniSize = 48;
     const margin = 20;
     mainWindow.setMinimumSize(miniSize, miniSize);
@@ -101,7 +228,65 @@ ipcMain.on('restore-window', () => {
   miniMode = false;
   mainWindow.webContents.send('mini-mode', false);
 });
+
+// ── On-Camera mode (stick to top-center, dynamic height) ────────────────────
+let onCameraMode = false;
+let manualBounds = null; // bounds before entering on-camera mode
+
+ipcMain.on('set-display-mode', (event, mode) => {
+  if (!mainWindow) return;
+  if (mode === 'on-camera' && !onCameraMode) {
+    // Save current manual bounds
+    manualBounds = mainWindow.getBounds();
+    onCameraMode = true;
+    // Position at top-center of the primary display
+    const display = screen.getPrimaryDisplay();
+    const { width: screenW, x: screenX, y: screenY } = display.workArea;
+    const winWidth = 420;
+    const x = screenX + Math.round((screenW - winWidth) / 2);
+    const y = screenY; // stick to top
+    mainWindow.setResizable(false);
+    mainWindow.setBounds({ x, y, width: winWidth, height: 80 }); // minimal initial height
+    mainWindow.webContents.send('on-camera-mode', true);
+  } else if (mode === 'manual' && onCameraMode) {
+    onCameraMode = false;
+    mainWindow.setResizable(true);
+    if (manualBounds) {
+      mainWindow.setBounds(manualBounds);
+    }
+    mainWindow.webContents.send('on-camera-mode', false);
+  }
+});
+
+ipcMain.on('resize-on-camera', (event, { height }) => {
+  if (!mainWindow || !onCameraMode) return;
+  const display = screen.getPrimaryDisplay();
+  const { width: screenW, height: screenH, x: screenX, y: screenY } = display.workArea;
+  const winWidth = 420;
+  const x = screenX + Math.round((screenW - winWidth) / 2);
+  // Clamp height: min 60, max 60% of screen
+  const maxH = Math.round(screenH * 0.6);
+  const clampedH = Math.max(60, Math.min(height, maxH));
+  mainWindow.setBounds({ x, y: screenY, width: winWidth, height: clampedH });
+});
+
 ipcMain.on('close-app', () => app.quit());
+
+// ── Browser Auth IPC ────────────────────────────────────────────────────────
+ipcMain.on('open-browser-login', () => {
+  shell.openExternal(`${WEB_APP_URL}/desktop-auth`);
+});
+
+ipcMain.on('open-external-url', (_event, url) => {
+  shell.openExternal(url);
+});
+
+ipcMain.on('open-browser-register', () => {
+  // Open desktop-auth first — if user already has a browser session, it will
+  // redirect back to the app immediately. If not, it redirects to login page
+  // where user can navigate to register.
+  shell.openExternal(`${WEB_APP_URL}/desktop-auth?intent=register`);
+});
 
 ipcMain.on('hide-for-screenshot', () => {
   if (mainWindow) {
@@ -112,10 +297,10 @@ ipcMain.on('hide-for-screenshot', () => {
 ipcMain.on('show-after-screenshot', () => {
   if (mainWindow) {
     mainWindow.showInactive();
-    // Re-apply ALL window protections after show (they get reset on hide/show cycle)
-    if (process.platform === 'win32' || process.platform === 'darwin') {
-      mainWindow.setContentProtection(true);
-    }
+    // DEMO MODE: screen hiding disabled so viewers can see the app
+    // if (process.platform === 'win32' || process.platform === 'darwin') {
+    //   mainWindow.setContentProtection(true);
+    // }
     if (process.platform === 'darwin') {
       mainWindow.setAlwaysOnTop(true, 'floating', 1);
       mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
@@ -155,409 +340,123 @@ ipcMain.handle('get-platform', () => {
   return process.platform;
 });
 
-ipcMain.handle('call-ai-api', async (event, { apiKey, model, messages, systemPrompt }) => {
-  const allMessages = [];
-  if (systemPrompt) {
-    allMessages.push({ role: 'system', content: systemPrompt });
-  }
-  allMessages.push(...messages);
-
-  const requestBody = {
-    model: model,
-    max_tokens: 1500,
-    temperature: 0.7,
-    messages: allMessages
-  };
-
-  const body = JSON.stringify(requestBody);
-  const bodyBuffer = Buffer.from(body);
-
-  return new Promise((resolve) => {
-    const options = {
-      hostname: 'api.groq.com',
-      port: 443,
-      path: '/openai/v1/chat/completions',
+ipcMain.handle('call-ai-api', async (event, { model, messages, systemPrompt }) => {
+  try {
+    const result = await backendRequest({
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Length': bodyBuffer.length
-      }
-    };
-
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(data);
-          if (json.error) {
-            resolve({ error: { message: json.error.message } });
-          } else if (json.choices && json.choices[0] && json.choices[0].message) {
-            resolve({ content: [{ text: json.choices[0].message.content }] });
-          } else {
-            resolve({ error: { message: 'Unexpected response' } });
-          }
-        } catch (e) {
-          resolve({ error: { message: 'Parse error' } });
-        }
-      });
+      path: '/ai/text',
+      body: { model, messages, systemPrompt }
     });
 
-    req.on('error', (e) => {
-      resolve({ error: { message: 'Network error: ' + e.message } });
-    });
-
-    req.setTimeout(30000, () => {
-      req.destroy();
-      resolve({ error: { message: 'Request timed out' } });
-    });
-
-    req.write(bodyBuffer);
-    req.end();
-  });
-});
-
-ipcMain.handle('call-deepseek-api', async (event, { apiKey, model, messages, systemPrompt }) => {
-  const allMessages = [];
-  if (systemPrompt) {
-    allMessages.push({ role: 'system', content: systemPrompt });
-  }
-  allMessages.push(...messages);
-
-  const requestBody = {
-    model: model,
-    max_tokens: 1500,
-    temperature: 0.7,
-    messages: allMessages
-  };
-
-  const body = JSON.stringify(requestBody);
-  const bodyBuffer = Buffer.from(body);
-
-  return new Promise((resolve) => {
-    const options = {
-      hostname: 'api.deepseek.com',
-      port: 443,
-      path: '/chat/completions',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Length': bodyBuffer.length
-      }
-    };
-
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(data);
-          if (json.error) {
-            resolve({ error: { message: json.error.message } });
-          } else if (json.choices && json.choices[0] && json.choices[0].message) {
-            resolve({ content: [{ text: json.choices[0].message.content }] });
-          } else {
-            resolve({ error: { message: 'Unexpected response' } });
-          }
-        } catch (e) {
-          resolve({ error: { message: 'Parse error' } });
-        }
-      });
-    });
-
-    req.on('error', (e) => {
-      resolve({ error: { message: 'Network error: ' + e.message } });
-    });
-
-    req.setTimeout(30000, () => {
-      req.destroy();
-      resolve({ error: { message: 'Request timed out' } });
-    });
-
-    req.write(bodyBuffer);
-    req.end();
-  });
-});
-
-// Helper: convert OpenAI-style messages to Gemini "contents" format
-function messagesToGeminiContents(messages) {
-  const contents = [];
-  for (const m of messages) {
-    if (!m || !m.content) continue;
-    // Gemini uses 'user' and 'model' roles (not 'assistant')
-    const role = m.role === 'assistant' ? 'model' : 'user';
-    let parts;
-    if (typeof m.content === 'string') {
-      parts = [{ text: m.content }];
-    } else if (Array.isArray(m.content)) {
-      // Multimodal content array (text + images)
-      parts = m.content.map(p => {
-        if (p.type === 'text') return { text: p.text };
-        if (p.type === 'image_url' && p.image_url && p.image_url.url) {
-          // Convert "data:image/jpeg;base64,XXX" to inline_data
-          const match = /^data:([^;]+);base64,(.+)$/.exec(p.image_url.url);
-          if (match) {
-            return { inline_data: { mime_type: match[1], data: match[2] } };
-          }
-        }
-        return { text: '' };
-      }).filter(p => p);
-    } else {
-      parts = [{ text: String(m.content) }];
+    if (!result.ok) {
+      return { error: { message: result.error ? result.error.message : 'Request failed' } };
     }
-    contents.push({ role, parts });
+
+    const data = result.data;
+    if (data && data.content) {
+      return { content: data.content };
+    } else if (data && data.choices && data.choices[0] && data.choices[0].message) {
+      return { content: [{ text: data.choices[0].message.content }] };
+    }
+    return { content: [{ text: data && data.text ? data.text : '' }] };
+  } catch (e) {
+    return { error: { message: 'Network error: ' + e.message } };
   }
-  return contents;
-}
-
-// Gemini 2.5+ flash models use "thinking" tokens that eat into maxOutputTokens.
-// Disable thinking on flash so the full budget goes to the actual answer.
-function buildGeminiGenerationConfig(model) {
-  const cfg = { temperature: 0.7, maxOutputTokens: 1500 };
-  const m = (model || '').toLowerCase();
-  // Flash variants benefit from disabled thinking. Pro keeps thinking enabled.
-  if (m.includes('flash')) {
-    cfg.thinkingConfig = { thinkingBudget: 0 };
-  }
-  return cfg;
-}
-
-ipcMain.handle('call-gemini-api', async (event, { apiKey, model, messages, systemPrompt }) => {
-  const requestBody = {
-    contents: messagesToGeminiContents(messages),
-    generationConfig: buildGeminiGenerationConfig(model)
-  };
-  if (systemPrompt) {
-    requestBody.systemInstruction = { parts: [{ text: systemPrompt }] };
-  }
-
-  const body = JSON.stringify(requestBody);
-  const bodyBuffer = Buffer.from(body);
-
-  return new Promise((resolve) => {
-    const options = {
-      hostname: 'generativelanguage.googleapis.com',
-      port: 443,
-      path: `/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-goog-api-key': apiKey,
-        'Content-Length': bodyBuffer.length
-      }
-    };
-
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(data);
-          if (json.error) {
-            resolve({ error: { message: 'Gemini ' + (res.statusCode || '?') + ': ' + (json.error.message || JSON.stringify(json.error)) } });
-          } else if (json.candidates && json.candidates[0] && json.candidates[0].content && json.candidates[0].content.parts) {
-            const text = json.candidates[0].content.parts.map(p => p.text || '').join('');
-            resolve({ content: [{ text: text }] });
-          } else if (json.promptFeedback && json.promptFeedback.blockReason) {
-            resolve({ error: { message: 'Blocked by Gemini: ' + json.promptFeedback.blockReason } });
-          } else {
-            resolve({ error: { message: 'Gemini ' + (res.statusCode || '?') + ' unexpected response: ' + data.substring(0, 300) } });
-          }
-        } catch (e) {
-          resolve({ error: { message: 'Gemini ' + (res.statusCode || '?') + ' parse error: ' + data.substring(0, 300) } });
-        }
-      });
-    });
-
-    req.on('error', (e) => {
-      resolve({ error: { message: 'Network error: ' + e.message } });
-    });
-
-    req.setTimeout(30000, () => {
-      req.destroy();
-      resolve({ error: { message: 'Request timed out' } });
-    });
-
-    req.write(bodyBuffer);
-    req.end();
-  });
 });
 
-// Streaming AI handler - emits tokens to renderer as they arrive
-ipcMain.handle('call-ai-stream', async (event, { provider, apiKey, model, messages, systemPrompt, streamId }) => {
+ipcMain.handle('call-deepseek-api', async (event, { model, messages, systemPrompt }) => {
+  try {
+    const result = await backendRequest({
+      method: 'POST',
+      path: '/ai/text',
+      body: { model, messages, systemPrompt }
+    });
+
+    if (!result.ok) {
+      return { error: { message: result.error ? result.error.message : 'Request failed' } };
+    }
+
+    const data = result.data;
+    if (data && data.content) {
+      return { content: data.content };
+    } else if (data && data.choices && data.choices[0] && data.choices[0].message) {
+      return { content: [{ text: data.choices[0].message.content }] };
+    }
+    return { content: [{ text: data && data.text ? data.text : '' }] };
+  } catch (e) {
+    return { error: { message: 'Network error: ' + e.message } };
+  }
+});
+
+ipcMain.handle('call-gemini-api', async (event, { model, messages, systemPrompt }) => {
+  try {
+    // Determine if this is a vision request (messages contain image content)
+    const hasImages = messages.some(m =>
+      Array.isArray(m.content) && m.content.some(p => p.type === 'image_url')
+    );
+    const endpoint = hasImages ? '/ai/vision' : '/ai/text';
+
+    const result = await backendRequest({
+      method: 'POST',
+      path: endpoint,
+      body: { model, messages, systemPrompt }
+    });
+
+    if (!result.ok) {
+      return { error: { message: result.error ? result.error.message : 'Request failed' } };
+    }
+
+    const data = result.data;
+    if (data && data.content) {
+      return { content: data.content };
+    }
+    return { content: [{ text: data && data.text ? data.text : '' }] };
+  } catch (e) {
+    return { error: { message: 'Network error: ' + e.message } };
+  }
+});
+
+// Streaming AI handler - emits tokens to renderer as they arrive via backend AI Proxy
+ipcMain.handle('call-ai-stream', async (event, { provider, model, messages, systemPrompt, streamId }) => {
   const sender = event.sender;
 
-  // Gemini has its own streaming format
-  if (provider === 'gemini') {
-    const requestBody = {
-      contents: messagesToGeminiContents(messages),
-      generationConfig: buildGeminiGenerationConfig(model)
-    };
-    if (systemPrompt) {
-      requestBody.systemInstruction = { parts: [{ text: systemPrompt }] };
+  try {
+    // Determine if this is a vision request (messages contain image content)
+    const hasImages = messages.some(m =>
+      Array.isArray(m.content) && m.content.some(p => p.type === 'image_url')
+    );
+    const endpoint = hasImages ? '/ai/vision' : '/ai/text';
+
+    // Use streaming mode to get the raw Response for SSE consumption
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
+
+    const result = await backendRequest({
+      method: 'POST',
+      path: endpoint,
+      body: { model, messages, systemPrompt, stream: true },
+      stream: true,
+      signal: controller.signal
+    });
+
+    clearTimeout(timeout);
+
+    if (!result.ok) {
+      return { error: { message: result.error ? result.error.message : 'Request failed' } };
     }
 
-    const body = JSON.stringify(requestBody);
-    const bodyBuffer = Buffer.from(body);
+    const response = result.raw;
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let fullText = '';
 
-    return new Promise((resolve) => {
-      const options = {
-        hostname: 'generativelanguage.googleapis.com',
-        port: 443,
-        path: `/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-goog-api-key': apiKey,
-          'Content-Length': bodyBuffer.length
-        }
-      };
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      const req = https.request(options, (res) => {
-        let buffer = '';
-        let fullText = '';
-        let errorMsg = null;
-        let rawData = ''; // accumulate raw response for error reporting
-        let finishReason = null;
-
-        res.on('data', chunk => {
-          const text = chunk.toString('utf8');
-          rawData += text;
-          buffer += text;
-          const lines = buffer.split('\n');
-          buffer = lines.pop();
-
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed || !trimmed.startsWith('data:')) continue;
-            const data = trimmed.slice(5).trim();
-            if (!data) continue;
-            try {
-              const json = JSON.parse(data);
-              if (json.error) {
-                errorMsg = json.error.message || JSON.stringify(json.error);
-                continue;
-              }
-              if (json.candidates && json.candidates[0]) {
-                const cand = json.candidates[0];
-                if (cand.content && cand.content.parts) {
-                  for (const part of cand.content.parts) {
-                    if (part.text) {
-                      fullText += part.text;
-                      sender.send('ai-stream-chunk', { streamId: streamId, delta: part.text });
-                    }
-                  }
-                }
-                // Track finishReason — MAX_TOKENS means budget too small / thinking ate it all
-                if (cand.finishReason && cand.finishReason !== 'STOP' && cand.finishReason !== 'FINISH_REASON_UNSPECIFIED') {
-                  finishReason = cand.finishReason;
-                }
-              }
-            } catch (e) {
-              // ignore parse errors on partial chunks
-            }
-          }
-        });
-
-        res.on('end', () => {
-          if (errorMsg) {
-            resolve({ error: { message: 'Gemini ' + (res.statusCode || '?') + ': ' + errorMsg } });
-          } else if (res.statusCode && res.statusCode >= 400) {
-            // Non-200 status with no streamed error — try parsing raw body
-            let parsedErr = rawData.substring(0, 300);
-            try {
-              const json = JSON.parse(rawData);
-              if (json.error && json.error.message) parsedErr = json.error.message;
-            } catch(e) {}
-            resolve({ error: { message: 'Gemini ' + res.statusCode + ': ' + parsedErr } });
-          } else if (!fullText) {
-            if (finishReason === 'MAX_TOKENS') {
-              resolve({ error: { message: 'Gemini hit MAX_TOKENS before producing output (thinking tokens consumed the budget). Try a Flash model or raise maxOutputTokens.' } });
-            } else if (finishReason) {
-              resolve({ error: { message: 'Gemini stopped: ' + finishReason } });
-            } else {
-              resolve({ error: { message: 'Gemini returned empty response: ' + rawData.substring(0, 300) } });
-            }
-          } else {
-            // Got partial text — append a hint if truncated
-            if (finishReason === 'MAX_TOKENS') {
-              const note = '\n\n[Response was truncated by token limit.]';
-              sender.send('ai-stream-chunk', { streamId: streamId, delta: note });
-              fullText += note;
-            }
-            resolve({ content: [{ text: fullText }] });
-          }
-        });
-      });
-
-      req.on('error', (e) => {
-        resolve({ error: { message: 'Network error: ' + e.message } });
-      });
-
-      req.setTimeout(30000, () => {
-        req.destroy();
-        resolve({ error: { message: 'Request timed out' } });
-      });
-
-      req.write(bodyBuffer);
-      req.end();
-    });
-  }
-
-  // Groq + DeepSeek (OpenAI-compatible streaming)
-  const allMessages = [];
-  if (systemPrompt) {
-    allMessages.push({ role: 'system', content: systemPrompt });
-  }
-  allMessages.push(...messages);
-
-  const requestBody = {
-    model: model,
-    max_tokens: 1500,
-    temperature: 0.7,
-    messages: allMessages,
-    stream: true
-  };
-
-  const body = JSON.stringify(requestBody);
-  const bodyBuffer = Buffer.from(body);
-
-  // OpenAI-compatible providers: Groq, DeepSeek, Cerebras
-  let hostname, path;
-  if (provider === 'deepseek') {
-    hostname = 'api.deepseek.com';
-    path = '/chat/completions';
-  } else if (provider === 'cerebras') {
-    hostname = 'api.cerebras.ai';
-    path = '/v1/chat/completions';
-  } else {
-    // Default to Groq
-    hostname = 'api.groq.com';
-    path = '/openai/v1/chat/completions';
-  }
-
-  return new Promise((resolve) => {
-    const options = {
-      hostname: hostname,
-      port: 443,
-      path: path,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Length': bodyBuffer.length
-      }
-    };
-
-    const req = https.request(options, (res) => {
-      let buffer = '';
-      let fullText = '';
-      let errorMsg = null;
-
-      res.on('data', chunk => {
-        buffer += chunk.toString('utf8');
+        buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
         buffer = lines.pop(); // last line may be incomplete
 
@@ -566,44 +465,44 @@ ipcMain.handle('call-ai-stream', async (event, { provider, apiKey, model, messag
           if (!trimmed || !trimmed.startsWith('data:')) continue;
           const data = trimmed.slice(5).trim();
           if (data === '[DONE]') continue;
+
           try {
             const json = JSON.parse(data);
-            if (json.error) {
-              errorMsg = json.error.message || 'API error';
-              continue;
+            // Handle backend SSE format: { delta: "..." }
+            if (json.delta) {
+              fullText += json.delta;
+              sender.send('ai-stream-chunk', { streamId, delta: json.delta });
             }
-            const delta = json.choices && json.choices[0] && json.choices[0].delta;
-            if (delta && delta.content) {
-              fullText += delta.content;
-              sender.send('ai-stream-chunk', { streamId: streamId, delta: delta.content });
+            // Also handle OpenAI-compatible format from backend
+            else if (json.choices && json.choices[0] && json.choices[0].delta && json.choices[0].delta.content) {
+              const content = json.choices[0].delta.content;
+              fullText += content;
+              sender.send('ai-stream-chunk', { streamId, delta: content });
             }
-          } catch (e) {
+            // Handle error in stream
+            else if (json.error) {
+              return { error: { message: json.error.message || 'Stream error' } };
+            }
+          } catch {
             // ignore parse errors on partial chunks
           }
         }
-      });
+      }
+    } finally {
+      reader.releaseLock();
+    }
 
-      res.on('end', () => {
-        if (errorMsg) {
-          resolve({ error: { message: errorMsg } });
-        } else {
-          resolve({ content: [{ text: fullText }] });
-        }
-      });
-    });
+    if (!fullText) {
+      return { error: { message: 'Empty response from AI service' } };
+    }
 
-    req.on('error', (e) => {
-      resolve({ error: { message: 'Network error: ' + e.message } });
-    });
-
-    req.setTimeout(30000, () => {
-      req.destroy();
-      resolve({ error: { message: 'Request timed out' } });
-    });
-
-    req.write(bodyBuffer);
-    req.end();
-  });
+    return { content: [{ text: fullText }] };
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      return { error: { message: 'Request timed out' } };
+    }
+    return { error: { message: 'Network error: ' + e.message } };
+  }
 });
 
 // Get desktop capturer sources for system audio loopback
@@ -665,54 +564,316 @@ ipcMain.handle('capture-screen-frame', async () => {
   }
 });
 
-ipcMain.handle('transcribe-audio', async (event, { apiKey, audioData }) => {
-  const tempPath = path.join(os.tmpdir(), 'interview-audio-' + Date.now() + '.webm');
-
+ipcMain.handle('transcribe-audio', async (event, { audioData }) => {
   try {
+    // Build multipart form data for the /ai/audio endpoint
     const audioBuffer = Buffer.from(audioData, 'base64');
-    fs.writeFileSync(tempPath, audioBuffer);
+    const { getClientId } = require('./auth/client-id');
 
-    return new Promise((resolve) => {
-      const curl = spawn('curl', [
-        '-s', 'https://api.groq.com/openai/v1/audio/transcriptions',
-        '-X', 'POST',
-        '-H', `Authorization: Bearer ${apiKey}`,
-        '-F', `file=@${tempPath}`,
-        '-F', 'model=whisper-large-v3',
-        '-F', 'response_format=json',
-        '-F', 'language=en',
-        '-F', 'temperature=0',
-        '-F', 'prompt=Technical interview question about software engineering, coding, or behavioral topics.'
-      ]);
+    // Use native fetch with FormData (Node 22 supports this)
+    const { FormData, File } = require('node:buffer');
+    // Node 22 has global FormData and File via undici
+    const formData = new globalThis.FormData();
+    const file = new globalThis.File([audioBuffer], 'audio.webm', { type: 'audio/webm' });
+    formData.append('file', file);
+    formData.append('model', 'whisper-large-v3');
 
-      let data = '';
-      let errorData = '';
+    const token = authController.getAccessToken();
+    const headers = {
+      'Authorization': token ? `Bearer ${token}` : '',
+      'X-Client-Id': getClientId(),
+      'X-Build-Version': '1.0.0'
+    };
 
-      curl.stdout.on('data', (chunk) => { data += chunk; });
-      curl.stderr.on('data', (chunk) => { errorData += chunk; });
-
-      curl.on('close', (code) => {
-        try { fs.unlinkSync(tempPath); } catch(e) {}
-
-        if (code !== 0) {
-          resolve({ error: { message: 'Transcription failed' } });
-          return;
-        }
-
-        try {
-          const json = JSON.parse(data);
-          if (json.error) {
-            resolve({ error: { message: json.error.message } });
-          } else {
-            resolve({ text: json.text });
-          }
-        } catch (e) {
-          resolve({ error: { message: 'Parse error' } });
-        }
-      });
+    const { getBaseUrl } = require('./net/backend-client');
+    const response = await fetch(`${getBaseUrl()}/ai/audio`, {
+      method: 'POST',
+      headers,
+      body: formData
     });
+
+    if (!response.ok) {
+      const errBody = await response.json().catch(() => null);
+      const msg = errBody?.error?.message || `Transcription failed (${response.status})`;
+      return { error: { message: msg } };
+    }
+
+    const data = await response.json();
+    if (data && data.text) {
+      return { text: data.text };
+    }
+    return { error: { message: 'Unexpected response from transcription service' } };
   } catch (e) {
-    try { fs.unlinkSync(tempPath); } catch(e) {}
-    return { error: { message: 'Failed to process audio' } };
+    return { error: { message: 'Network error: ' + e.message } };
   }
+});
+
+// =============================================================================
+// Auth, Entitlement, Session, Purchase IPC handlers
+// (wired to the new interviewAssistantApi preload namespaces)
+// =============================================================================
+
+// Wire auth controller into the backend client for 401 refresh handling
+setAuthController(authController);
+
+// Initialize auth controller (loads persisted tokens)
+authController.initialize();
+
+// Wire the HTTP client into auth controller for refresh/logout calls
+authController.setHttpClient(async (path, options) => {
+  const result = await backendRequest({
+    method: options.method || 'POST',
+    path: path,
+    body: options.body
+  });
+  return { ok: result.ok, status: result.status, data: result.data };
+});
+
+// Wire backend request into session controller
+// Session controller expects: backendRequest(method, path) => {data, error}
+sessionController.init(async (method, path, options) => {
+  const result = await backendRequest({ method, path, ...(options || {}) });
+  if (!result.ok) {
+    return { error: result.error || { code: 'request_failed', message: 'Request failed' }, data: null };
+  }
+  return { data: result.data, error: null };
+});
+
+// Forward session state changes to renderer
+sessionController.on('session:state-changed', (state) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('session:stateChanged', state);
+  }
+});
+
+// Track explicit logout to prevent auto-login loop
+let justLoggedOut = false;
+
+// Forward auth state changes to renderer
+authController.on('auth:logged-out', (info) => {
+  // Reset session state on logout
+  sessionController.reset();
+  justLoggedOut = true;
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('auth:changed', 'logged-out');
+    // Navigate main window back to login page
+    mainWindow.loadFile(path.join(__dirname, 'renderer', 'login.html'));
+  }
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.webContents.send('auth:changed', 'logged-out');
+    settingsWindow.close();
+  }
+});
+
+// --- Auth IPC handlers ---
+ipcMain.handle('auth:login', async (event, { email, password }) => {
+  try {
+    const { getClientId } = require('./auth/client-id');
+    const clientId = getClientId();
+
+    const result = await backendRequest({
+      method: 'POST',
+      path: '/auth/login',
+      body: { email, password, client_id: clientId }
+    });
+
+    if (!result.ok) {
+      return { error: result.error || { code: 'login_failed', message: 'Login failed' } };
+    }
+
+    // Store tokens via auth controller
+    const data = result.data;
+    authController.handleLoginSuccess({
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token,
+      expiresIn: data.expires_in || 3600
+    });
+
+    // Also store email in config for display purposes
+    const secureStore = require('./auth/secure-store');
+    secureStore.setItem('user_email', email);
+
+    return { success: true, user: { email, role: data.role || 'user' } };
+  } catch (e) {
+    return { error: { code: 'network_error', message: e.message } };
+  }
+});
+
+ipcMain.handle('auth:register', async (event, { email, password }) => {
+  try {
+    const { getClientId } = require('./auth/client-id');
+    const clientId = getClientId();
+
+    const result = await backendRequest({
+      method: 'POST',
+      path: '/auth/register',
+      body: { email, password, client_id: clientId }
+    });
+
+    if (!result.ok) {
+      return { error: result.error };
+    }
+    return { success: true };
+  } catch (e) {
+    return { error: { code: 'network_error', message: e.message } };
+  }
+});
+
+ipcMain.handle('auth:logout', async () => {
+  // Best-effort backend revocation with 5s timeout (prevents fetch from hanging forever)
+  try {
+    await Promise.race([
+      authController.logout(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+    ]);
+  } catch {
+    // Backend unreachable or timed out — force-clear local state and emit event manually
+    authController._clearState();
+    authController.emit('auth:logged-out', { reason: 'user_logout' });
+  }
+  return { success: true };
+});
+
+// Fire-and-forget logout channel (used by settings page for instant response)
+ipcMain.on('logout-request', () => {
+  // Try backend revocation with 5s timeout, then always clean up locally
+  Promise.race([
+    authController.logout(),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+  ]).catch(() => {
+    authController._clearState();
+    authController.emit('auth:logged-out', { reason: 'user_logout' });
+  });
+});
+
+ipcMain.handle('auth:getCurrentUser', async () => {
+  if (!authController.isAuthenticated()) {
+    return null;
+  }
+  // Decode the access token to get user info
+  try {
+    const token = authController.getAccessToken();
+    if (!token) return null;
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    // Normalize base64url to base64 for compatibility with older Node.js
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const json = Buffer.from(base64, 'base64').toString('utf-8');
+    const payload = JSON.parse(json);
+    return {
+      email: payload.email || payload.sub || 'unknown',
+      role: payload.role || 'user',
+      displayName: payload.display_name || null
+    };
+  } catch {
+    return null;
+  }
+});
+
+// --- Entitlement IPC handlers ---
+ipcMain.handle('entitlement:get', async () => {
+  try {
+    const result = await backendRequest({ method: 'GET', path: '/me/entitlement' });
+    if (!result.ok) return { error: result.error };
+    return result.data;
+  } catch (e) {
+    return { error: { code: 'network_error', message: e.message } };
+  }
+});
+
+// --- Session IPC handlers ---
+ipcMain.handle('session:start', async () => {
+  return await sessionController.start();
+});
+
+ipcMain.handle('session:end', async () => {
+  return await sessionController.end();
+});
+
+ipcMain.handle('session:extend', async () => {
+  return await sessionController.extend();
+});
+
+ipcMain.handle('session:getActive', async () => {
+  return await sessionController.getActive();
+});
+
+// --- Purchase IPC handlers ---
+ipcMain.handle('purchase:listPacks', async () => {
+  try {
+    const result = await backendRequest({ method: 'GET', path: '/packs' });
+    if (!result.ok) return { error: result.error };
+    return result.data;
+  } catch (e) {
+    return { error: { code: 'network_error', message: e.message } };
+  }
+});
+
+ipcMain.handle('purchase:checkout', async (event, packSlug) => {
+  return await checkoutController.checkout(packSlug);
+});
+
+ipcMain.handle('purchase:listMine', async () => {
+  try {
+    const result = await backendRequest({ method: 'GET', path: '/me/purchases' });
+    if (!result.ok) return { error: result.error };
+    return result.data;
+  } catch (e) {
+    return { error: { code: 'network_error', message: e.message } };
+  }
+});
+
+// --- Config IPC handlers ---
+ipcMain.handle('config:save', async (event, config) => {
+  const configPath = path.join(os.homedir(), '.interview-assistant-config.json');
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+  mainWindow?.webContents.send('config-changed');
+  return { success: true };
+});
+
+ipcMain.handle('config:load', async () => {
+  const configPath = path.join(os.homedir(), '.interview-assistant-config.json');
+  if (fs.existsSync(configPath)) {
+    return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  }
+  return {};
+});
+
+// --- Chat history sync (for downloadable chat) ---
+let chatHistoryStore = [];
+
+ipcMain.on('sync-chat-history', (_event, history) => {
+  if (Array.isArray(history)) {
+    chatHistoryStore = history;
+  }
+});
+
+ipcMain.handle('get-chat-history', async () => {
+  return chatHistoryStore;
+});
+
+// --- File save dialog ---
+ipcMain.handle('save-file-dialog', async (_event, { defaultName, content }) => {
+  const result = await dialog.showSaveDialog(mainWindow || settingsWindow, {
+    defaultPath: path.join(os.homedir(), defaultName || 'download.json'),
+    filters: [
+      { name: 'JSON Files', extensions: ['json'] },
+      { name: 'All Files', extensions: ['*'] }
+    ]
+  });
+  if (result.canceled || !result.filePath) {
+    return { canceled: true };
+  }
+  fs.writeFileSync(result.filePath, content, 'utf-8');
+  return { canceled: false, filePath: result.filePath };
+});
+
+// --- Logout state check (prevents auto-login loop after explicit sign-out) ---
+ipcMain.handle('auth:isJustLoggedOut', async () => {
+  if (justLoggedOut) {
+    justLoggedOut = false;
+    return true;
+  }
+  return false;
 });

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#6366f1"/>
+    </linearGradient>
+  </defs>
+  <rect width="48" height="48" rx="11" fill="url(#g)"/>
+  <!-- Bold upward arrow stem -->
+  <path d="M24 8v16" stroke="#fff" stroke-width="4.5" stroke-linecap="round"/>
+  <!-- Bold arrow head -->
+  <path d="m17 15 7-7 7 7" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Nod curve below arrow -->
+  <path d="M11 31c0-7.2 5.8-13 13-13s13 5.8 13 13" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+</svg>
