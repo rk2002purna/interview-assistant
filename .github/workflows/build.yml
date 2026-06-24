@@ -11,22 +11,33 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history needed by electron-builder publish
+
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22   # LTS — Node 20 deprecated on GH Actions
+
       - run: npm ci
+
       - name: Regenerate icon.ico from icon.png
         run: npx --yes png-to-ico build/icon.png -o build/icon.ico --sizes 16 32 48 64 128 256
-      - run: npm run build
+
+      - name: Build Windows installer
+        run: npm run build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Prevent electron-builder git describe errors on shallow clones
+          ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: true
+
       - name: Upload Windows installer to Release
-        uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
         with:
           files: dist/*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - uses: actions/upload-artifact@v4
         with:
           name: windows-installer
@@ -36,22 +47,31 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history needed by electron-builder publish
+
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22   # LTS — Node 20 deprecated on GH Actions
+
       - run: npm ci
-      - run: npm run build:mac
+
+      - name: Build macOS installer
+        run: npm run build:mac
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: true
+
       - name: Upload macOS installer to Release
-        uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/*.dmg
             dist/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - uses: actions/upload-artifact@v4
         with:
           name: mac-installer
