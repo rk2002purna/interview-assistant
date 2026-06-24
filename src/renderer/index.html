@@ -61,6 +61,9 @@
     .mode-indicator.visible { display: block; }
     .mode-indicator .label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px; }
     .mode-indicator .info { font-size: 11px; line-height: 1.5; }
+    #passive-indicator { background: rgba(159,122,234,0.08); border-bottom: 1px solid rgba(159,122,234,0.15); }
+    #passive-indicator .label { color: #9f7aea; }
+    #passive-indicator .info { color: #b794f4; }
     #screen-indicator { background: rgba(79,209,197,0.08); border-bottom: 1px solid rgba(79,209,197,0.15); }
     #screen-indicator .label { color: #4fd1c5; }
     #screen-indicator .info { color: #81e6d9; }
@@ -90,7 +93,7 @@
     #chat-history-panel.visible { display: flex; }
     .chat-item { padding: 8px 14px; border-bottom: 1px solid rgba(99,179,237,0.08); }
     .chat-q { font-size: 11px; color: #63b3ed; font-weight: 600; margin-bottom: 3px; }
-    .chat-a { font-size: 11px; color: #a0aec0; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .chat-a { font-size: 11px; color: #a0aec0; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     .chat-empty { padding: 20px; text-align: center; color: #4a5568; font-size: 11px; }
     .hide-in-passive { transition: opacity 0.3s; }
     .passive-active .hide-in-passive, .screen-active .hide-in-passive { opacity: 0.3; pointer-events: none; max-height: 0; overflow: hidden; padding: 0; }
@@ -153,6 +156,7 @@
     body.on-camera-mode #session-cta,
     body.on-camera-mode #mode-toggle-bar,
     body.on-camera-mode #statusbar,
+    body.on-camera-mode #passive-indicator,
     body.on-camera-mode #screen-indicator,
     body.on-camera-mode #chat-history-panel,
     body.on-camera-mode #transcript-box,
@@ -198,7 +202,7 @@
   <!-- Session CTA: visible when no session is active -->
   <div id="session-cta" class="hidden">
     <button id="start-session-btn" onclick="startSession()">&#9654; Start Interview Session</button>
-    <div class="cta-subtitle" id="cta-subtitle">3 free 10-min trial sessions included — then 90-min paid sessions</div>
+    <div class="cta-subtitle" id="cta-subtitle">3 free 10-min trial sessions — then 90-min paid sessions</div>
     <div id="packs-container" class="hidden"></div>
   </div>
   <!-- Session extension pop-up -->
@@ -369,28 +373,6 @@ async function syncSessionState() {
     // If session API not available, show CTA
     handleSessionStateChanged({ active: false, session_id: null, remaining_seconds: 0, warning: false, is_trial: false });
   }
-
-  // Update the subtitle based on how many sessions the user has left
-  try {
-    if (window.interviewAssistantApi && window.interviewAssistantApi.entitlement) {
-      var ent = await window.interviewAssistantApi.entitlement.get();
-      if (ent && !ent.error) {
-        var remaining = ent.session_count !== undefined ? ent.session_count
-                      : (ent.resulting_session_count !== undefined ? ent.resulting_session_count : 0);
-        var subtitle = document.getElementById('cta-subtitle');
-        if (subtitle) {
-          if (ent.lifetime_flag || ent.lifetime) {
-            subtitle.textContent = '♾️ Lifetime access — unlimited 90-min sessions';
-          } else if (Number(remaining) > 0) {
-            subtitle.textContent = Number(remaining) + ' session' + (Number(remaining) === 1 ? '' : 's') + ' remaining — first 3 are free 10-min trials';
-          } else {
-            subtitle.textContent = 'Your 3 free trials are used. Buy a pack to get 90-min sessions.';
-            document.getElementById('packs-container').classList.remove('hidden');
-          }
-        }
-      }
-    }
-  } catch(e) { /* entitlement check is best-effort */ }
 }
 
 function handleSessionStateChanged(state) {
@@ -416,7 +398,7 @@ function handleSessionStateChanged(state) {
     cta.classList.add('hidden');
     modeBar.classList.remove('hidden');
     updateSessionTimer();
-    // Show TRIAL / SESSION label
+    // Show TRIAL / SESSION label in the badge
     var typeLabel = document.getElementById('session-type-label');
     if (typeLabel) typeLabel.textContent = sessionIsTrial ? 'Trial' : 'Session';
 
@@ -452,12 +434,9 @@ async function startSession() {
       var result = await window.interviewAssistantApi.session.start();
       if (result && result.error) {
         if (result.error.code === 'no_sessions_remaining') {
-          // All 3 free trials used — show packs
+          // Show packs for purchase
           document.getElementById('packs-container').classList.remove('hidden');
-          document.getElementById('cta-subtitle').textContent = 'Your 3 free trials are used. Buy a pack to get 90-min sessions.';
-          document.getElementById('answer-text').textContent = '✅ Your 3 free 10-min trial sessions have been used. Purchase a pack below to continue with full 90-minute sessions.';
-        } else if (result.error.code === 'session_already_active') {
-          document.getElementById('answer-text').textContent = 'A session is already active. Please wait for it to expire or end it first.';
+          document.getElementById('answer-text').textContent = 'No sessions remaining. Purchase a pack to continue.';
         } else {
           document.getElementById('answer-text').textContent = 'Could not start session: ' + (result.error.message || result.error.code);
         }
@@ -617,27 +596,20 @@ function renderPacks(packs) {
 
 async function purchasePack(slug) {
   // Open the web app pricing page in the browser for UPI-based checkout
-  ipcRenderer.send('open-external-url', 'http://localhost:5173/pricing');
+  ipcRenderer.send('open-external-url', 'https://upnod.referconnect.in/pricing');
 }
 
 // Build a system prompt with optional resume/job context appended
 function buildSystemPrompt(basePrompt) {
   var contextBlock = '';
   if (resumeContext) {
-    contextBlock += '\n\n=== YOUR BACKGROUND (you are this person) ===\n' + resumeContext;
+    contextBlock += '\n\nUSER\'S BACKGROUND/RESUME:\n' + resumeContext;
   }
   if (jobContext) {
-    contextBlock += '\n\n=== TARGET ROLE YOU ARE INTERVIEWING FOR ===\n' + jobContext;
+    contextBlock += '\n\nTARGET ROLE / JOB:\n' + jobContext;
   }
   if (contextBlock) {
-    contextBlock += '\n\nCRITICAL: You ARE the candidate described above. Every answer must be in first person ("I", "my", "we"). ' +
-      'Draw specific examples, projects, and technologies from YOUR background above. ' +
-      'When asked about future goals, frame them around where YOUR actual skills and the target role intersect. ' +
-      'Never talk about yourself as an AI or assistant — you are a human professional with the background listed above.';
-  } else {
-    contextBlock += '\n\nNOTE: No background context was provided. Answer as a realistic, experienced professional in first person. ' +
-      'Never reveal that you are an AI — you are a human candidate in an interview. ' +
-      'Use common industry experience that would be plausible for the role being discussed.';
+    contextBlock += '\n\nUse this context to tailor your answers — frame examples around the user\'s experience and align responses with the target role when relevant.';
   }
   return basePrompt + contextBlock;
 }
@@ -667,6 +639,7 @@ function switchMode(mode) {
   document.getElementById('manual-mode-btn').classList.remove('active');
   document.getElementById('passive-mode-btn').classList.remove('active');
   document.getElementById('screen-mode-btn').classList.remove('active');
+  document.getElementById('passive-indicator').classList.remove('visible');
   document.getElementById('screen-indicator').classList.remove('visible');
   document.getElementById('mic-btn').style.display = '';
   if (mode === 'manual') {
@@ -676,6 +649,7 @@ function switchMode(mode) {
     app.classList.add('passive-active');
     document.getElementById('passive-mode-btn').classList.add('active');
     document.getElementById('mic-btn').style.display = 'none';
+    document.getElementById('passive-indicator').classList.add('visible');
     setStatus('Starting passive audio capture...');
     startPassiveMode();
   } else if (mode === 'screen') {
@@ -1289,45 +1263,7 @@ async function askQuestion(question){
     });
 
     var aiPromise=callAIStream(conversationHistory.slice(-6),
-      buildSystemPrompt(`You are a job candidate in a live interview. You must answer the interviewer's questions in first person as a real human professional — never break character.
-
-HOW TO ANSWER:
-
-1. SPEAK LIKE A REAL PERSON
-   - Use natural conversational English with contractions (I'm, I'd, I've, that's, it's)
-   - Vary your sentence length — mix short direct statements with longer explanations
-   - Show personality: confidence, curiosity, honesty. Real people don't sound like press releases.
-   - NEVER start with filler preambles — no "Sure!", "Great question!", "Let me walk you through...", "That's a great question." Just answer the question directly.
-   - NEVER use phrases like "one must consider", "it is noteworthy", "I shall endeavor" — that's AI-speak
-   - DO NOT number your points out loud, use headings, or structure your answer with labels — just speak naturally
-
-2. STRUCTURE YOUR ANSWER NATURALLY
-   - Open with a direct response to the question (1-2 sentences)
-   - Back it up with a concrete example or story from your background (2-4 sentences)
-   - Connect it to why this matters for the role you're interviewing for (1-2 sentences)
-   - End with a brief wrap-up that shows reflection
-
-3. FOR BEHAVIORAL QUESTIONS (tell me about a time, how do you handle, etc.)
-   - Tell a genuine story with a beginning, middle, and end
-   - Include: what happened → what YOU specifically did → what you learned
-   - Be honest about challenges — perfect stories sound fake
-
-4. FOR TECHNICAL QUESTIONS
-   - Define the concept clearly in your own words first
-   - Explain with a practical example from your actual experience
-   - If you don't know something: admit it honestly and explain how you'd figure it out
-
-5. FOR "FUTURE GOALS" QUESTIONS (where do you see yourself, 3 years, 5 years, etc.)
-   - Anchor your answer in YOUR actual skills and the target role
-   - Show ambition but be realistic: growth in skills, scope, impact — not "I want to be CEO"
-   - Mention specific technologies or domains from your background you want to deepen
-
-6. FOR CODING QUESTIONS
-   - Walk through your approach first in plain language
-   - Then provide clean, working code in a code block
-
-CRITICAL: You ARE the candidate, not an AI. Never mention being an AI, assistant, or language model.
-Answer elaborately — this is a real interview, not a chatbot. Give full, thoughtful answers.`),
+      buildSystemPrompt('You are a real-time interview assistant. Give concise direct answers. For coding: working code. For behavioral: STAR method. Keep under 200 words unless complex. No preamble.'),
       function(delta){
         if(firstChunkTimer){clearTimeout(firstChunkTimer);firstChunkTimer=null;}
         if(firstChunk){ el.innerHTML=''; firstChunk=false; setStatus('Answering...'); }
