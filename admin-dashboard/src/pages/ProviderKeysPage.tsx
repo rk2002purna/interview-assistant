@@ -14,7 +14,7 @@ interface ProviderKey {
   updated_at: string;
 }
 
-const PROVIDERS = ['gemini', 'groq', 'deepseek', 'cerebras'] as const;
+const PROVIDERS = ['gemini', 'groq', 'deepseek', 'cerebras', 'digitalocean'] as const;
 
 // ---------------------------------------------------------------------------
 // Component

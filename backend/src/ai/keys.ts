@@ -48,7 +48,7 @@ import type { Logger } from '../log/logger.js';
  * `provider_keys.provider` CHECK constraint in migration 0005 so the
  * resolver's accepted set and the database's accepted set never drift.
  */
-export const PROVIDERS = ['gemini', 'groq', 'deepseek', 'cerebras'] as const;
+export const PROVIDERS = ['gemini', 'groq', 'deepseek', 'cerebras', 'digitalocean'] as const;
 
 export type ProviderName = (typeof PROVIDERS)[number];
 

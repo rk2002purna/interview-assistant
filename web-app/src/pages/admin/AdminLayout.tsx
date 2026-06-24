@@ -2,13 +2,14 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { logout, getCurrentUser } from '../../api/client';
 
 const NAV_ITEMS = [
-  { to: '/admin/users', label: 'Users' },
-  { to: '/admin/packs', label: 'Packs' },
-  { to: '/admin/welcome-offer', label: 'Welcome Offer' },
-  { to: '/admin/provider-keys', label: 'Provider Keys' },
-  { to: '/admin/audit-log', label: 'Audit Log' },
-  { to: '/admin/rate-limits', label: 'Rate Limits' },
-  { to: '/admin/model-routing', label: 'Model Routing' },
+  { to: '/admin/users',            label: '👥 Users' },
+  { to: '/admin/usage-analytics',  label: '📊 Usage Analytics' },
+  { to: '/admin/provider-keys',    label: '🔑 Provider Keys' },
+  { to: '/admin/model-routing',    label: '🤖 Model Routing' },
+  { to: '/admin/packs',            label: '📦 Packs' },
+  { to: '/admin/welcome-offer',    label: '🎁 Welcome Offer' },
+  { to: '/admin/rate-limits',      label: '⚡ Rate Limits' },
+  { to: '/admin/audit-log',        label: '📋 Audit Log' },
 ];
 
 export default function AdminLayout() {

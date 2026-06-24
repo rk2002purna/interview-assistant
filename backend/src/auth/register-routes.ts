@@ -217,30 +217,19 @@ export function buildAuthRegisterRouter(deps: RegisterRoutesDeps): Hono {
         tokenBytes,
       });
 
+      // Grant 3 free trial sessions as signup bonus — in the SAME
+      // transaction as user creation so it's atomic.
+      await appendLedgerEntry(client, {
+        userId,
+        sessionDelta: 3,
+        lifetimeFlagSet: 'unchanged',
+        reason: 'signup_bonus',
+        note: '3 free trial sessions (10 min each)',
+      });
+
       await client.query('COMMIT');
 
       await deliver(sendEmail, logger, { email, token: tokenRaw, userId });
-
-      // Grant 3 free trial sessions (10 min each) as signup bonus.
-      try {
-        await client.query('BEGIN');
-        await appendLedgerEntry(client, {
-          userId,
-          sessionDelta: 3,
-          lifetimeFlagSet: 'unchanged',
-          reason: 'signup_bonus',
-          note: '3 free trial sessions (10 min each)',
-        });
-        await client.query('COMMIT');
-      } catch (err) {
-        // Trial grant failure must not roll back the user creation.
-        // The user can still register; an admin can grant sessions later.
-        await safeRollback(client);
-        logger.warn('signup_bonus_grant_failed', {
-          user_id: userId,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
 
       return c.json(
         { user_id: userId, status: 'pending_verification' as const },

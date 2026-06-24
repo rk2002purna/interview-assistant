@@ -8,10 +8,9 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: transparent; color: #e2e8f0; user-select: none; height: 100vh; overflow: hidden; }
     #app { background: rgba(15,15,25,0.85); border: 1px solid rgba(99,179,237,0.15); border-radius: 14px; height: 100vh; display: flex; flex-direction: column; backdrop-filter: blur(8px); overflow: hidden; }
-    #titlebar { -webkit-app-region: drag; background: transparent; padding: 8px 10px; display: flex; align-items: center; justify-content: flex-end; flex-shrink: 0; }
+    #titlebar { -webkit-app-region: drag; background: rgba(0,0,0,0.15); padding: 6px 10px; display: flex; align-items: center; justify-content: flex-end; flex-shrink: 0; border-top: 1px solid rgba(99,179,237,0.08); }
     .win-btns { -webkit-app-region: no-drag; display: flex; gap: 6px; }
-    .win-btn { width: 18px; height: 18px; border-radius: 50%; border: none; cursor: pointer; font-size: 9px; display: flex; align-items: center; justify-content: center; transition: opacity 0.2s; }
-    .win-btn:hover { opacity: 0.8; }
+    .win-btn { width: 18px; height: 18px; border-radius: 50%; border: none; cursor: pointer; font-size: 9px; display: flex; align-items: center; justify-content: center; }
     .btn-close { background: #fc5c65; color: #7a0000; }
     .btn-min { background: #fed330; color: #7a5500; }
     .btn-set { background: #45aaf2; color: #003060; }
@@ -95,6 +94,24 @@
     .chat-empty { padding: 20px; text-align: center; color: #4a5568; font-size: 11px; }
     .hide-in-passive { transition: opacity 0.3s; }
     .passive-active .hide-in-passive, .screen-active .hide-in-passive { opacity: 0.3; pointer-events: none; max-height: 0; overflow: hidden; padding: 0; }
+
+    /* Chat history clickable items + memory highlight */
+    .chat-item { cursor: pointer; transition: background 0.15s; }
+    .chat-item:hover { background: rgba(99,179,237,0.08); }
+    .chat-item.active-memory { background: rgba(72,187,120,0.1); border-left: 2px solid #48bb78; }
+
+    /* Memory viewer banner */
+    #memory-view-banner {
+      display: none; align-items: center; justify-content: space-between;
+      padding: 6px 14px; background: rgba(72,187,120,0.12);
+      border-bottom: 1px solid rgba(72,187,120,0.25); flex-shrink: 0;
+    }
+    #memory-view-banner.visible { display: flex; }
+    #memory-view-banner .banner-label { font-size: 10px; color: #68d391; font-weight: 600; }
+    #memory-view-banner .banner-q { font-size: 10px; color: #a0aec0; margin-left: 6px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #memory-back-btn { background: rgba(72,187,120,0.2); border: 1px solid rgba(72,187,120,0.4); color: #68d391; padding: 3px 10px; border-radius: 10px; cursor: pointer; font-size: 10px; font-weight: 600; white-space: nowrap; margin-left: 8px; }
+    #memory-back-btn:hover { background: rgba(72,187,120,0.35); }
+
     /* Extension pop-up */
     #extend-popup { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; backdrop-filter: blur(2px); }
     #extend-popup.visible { display: flex; }
@@ -151,24 +168,40 @@
 <body>
 <button id="mini-restore-btn" onclick="restoreWindow()" title="Restore">&#9744;</button>
 <div id="app">
-  <div id="titlebar"><div class="win-btns">
-    <button class="win-btn btn-set" onclick="openSettings()" title="Settings">&#9881;</button>
-    <button class="win-btn btn-min" onclick="minimize()" title="Minimize">&minus;</button>
-    <button class="win-btn btn-close" onclick="closeApp()" title="Close">&#10005;</button>
-  </div></div>
+  <!-- Answer panel: flex:1, fills all available space at the top -->
+  <div id="answer-wrap"><div class="label">AI Answer</div><div id="answer-text">Select a mode to get started.</div></div>
+  <div id="transcript-box"><div class="label">Detected Question</div><div id="transcript-text"></div></div>
+  <!-- Memory viewer banner -->
+  <div id="memory-view-banner">
+    <span class="banner-label">📖 Viewing:</span>
+    <span class="banner-q" id="memory-banner-q"></span>
+    <button id="memory-back-btn" onclick="exitMemoryView()">← Back</button>
+  </div>
+  <div id="chat-history-panel"><div id="chat-history-list"></div></div>
+  <div id="passive-indicator" class="mode-indicator"><div class="label">Passive Listener Active</div><div class="info">Capturing system audio. Questions auto-detected.</div></div>
+  <div id="screen-indicator" class="mode-indicator">
+    <div class="label">Screen Analyzer</div>
+    <div class="info">Scroll to each part of the question and click Capture. When done, click Analyze to get the answer.</div>
+    <div style="display:flex; gap:8px; margin-top:10px;">
+      <button id="capture-screen-btn" onclick="captureScreenshot()" style="flex:1; padding:10px; background:linear-gradient(135deg,#4fd1c5,#319795); border:none; color:white; border-radius:8px; cursor:pointer; font-size:12px; font-weight:600;">📸 Capture</button>
+      <button id="analyze-screen-btn" onclick="analyzeScreenNow()" style="flex:1; padding:10px; background:linear-gradient(135deg,#ed8936,#dd6b20); border:none; color:white; border-radius:8px; cursor:pointer; font-size:12px; font-weight:600;" disabled>🤖 Analyze (0)</button>
+    </div>
+    <button id="clear-captures-btn" onclick="clearCaptures()" style="margin-top:6px; width:100%; padding:6px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); color:#a0aec0; border-radius:6px; cursor:pointer; font-size:11px;">🗑️ Clear captures</button>
+  </div>
   <!-- Session badge: visible when session is active -->
   <div id="session-badge" class="hidden">
     <div class="badge-dot"></div>
-    <span id="session-timer">90:00</span>
+    <span id="session-type-label" style="font-size:9px;color:#68d391;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;"></span>
+    <span id="session-timer">10:00</span>
     <button id="end-session-btn" onclick="endSession()">End Session</button>
   </div>
   <!-- Session CTA: visible when no session is active -->
   <div id="session-cta" class="hidden">
     <button id="start-session-btn" onclick="startSession()">&#9654; Start Interview Session</button>
-    <div class="cta-subtitle">Start a 90-minute session to use AI modes</div>
+    <div class="cta-subtitle" id="cta-subtitle">3 free 10-min trial sessions included — then 90-min paid sessions</div>
     <div id="packs-container" class="hidden"></div>
   </div>
-  <!-- Session extension pop-up: shown when paid session is about to expire -->
+  <!-- Session extension pop-up -->
   <div id="extend-popup">
     <div class="popup-card">
       <div class="popup-title">Session Ending Soon</div>
@@ -188,6 +221,12 @@
     <button class="mode-btn" id="passive-mode-btn" onclick="switchMode('passive')">&#128065; Passive</button>
     <button class="mode-btn" id="screen-mode-btn" onclick="switchMode('screen')">&#128421; Screen Analyzer</button>
   </div>
+  <!-- Input area -->
+  <div id="input-area" class="hide-in-passive">
+    <textarea id="manual-input" placeholder="Type a question..." onkeydown="handleKey(event)"></textarea>
+    <button id="ask-btn" onclick="askManual()">Ask</button>
+  </div>
+  <!-- Status bar -->
   <div id="statusbar">
     <div class="status-dot" id="status-dot"></div>
     <span id="status-text">Ready</span>
@@ -195,29 +234,36 @@
     <button id="clear-history-btn" onclick="clearChatHistory()">Clear</button>
     <button id="mic-btn" onclick="toggleMic()">&#9654; Start</button>
   </div>
-  <div id="screen-indicator" class="mode-indicator">
-    <div class="label">Screen Analyzer</div>
-    <div class="info">Scroll to each part of the question and click Capture. When done, click Analyze to get the answer.</div>
-    <div style="display:flex; gap:8px; margin-top:10px;">
-      <button id="capture-screen-btn" onclick="captureScreenshot()" style="flex:1; padding:10px; background:linear-gradient(135deg,#4fd1c5,#319795); border:none; color:white; border-radius:8px; cursor:pointer; font-size:12px; font-weight:600;">📸 Capture</button>
-      <button id="analyze-screen-btn" onclick="analyzeScreenNow()" style="flex:1; padding:10px; background:linear-gradient(135deg,#ed8936,#dd6b20); border:none; color:white; border-radius:8px; cursor:pointer; font-size:12px; font-weight:600;" disabled>🤖 Analyze (0)</button>
-    </div>
-    <button id="clear-captures-btn" onclick="clearCaptures()" style="margin-top:6px; width:100%; padding:6px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); color:#a0aec0; border-radius:6px; cursor:pointer; font-size:11px;">🗑️ Clear captures</button>
-  </div>
-  <div id="chat-history-panel"><div id="chat-history-list"></div></div>
-  <div id="transcript-box"><div class="label">Detected Question</div><div id="transcript-text"></div></div>
-  <div id="answer-wrap"><div class="label">Answer</div><div id="answer-text">Select a mode to get started.</div></div>
-  <div id="input-area" class="hide-in-passive">
-    <textarea id="manual-input" placeholder="Type a question..." onkeydown="handleKey(event)"></textarea>
-    <button id="ask-btn" onclick="askManual()">Ask</button>
-  </div>
+  <!-- Titlebar with window buttons — pinned at bottom -->
+  <div id="titlebar"><div class="win-btns">
+    <button class="win-btn btn-set" onclick="openSettings()" title="Settings">&#9881;</button>
+    <button class="win-btn btn-min" onclick="minimize()" title="Minimize">&minus;</button>
+    <button class="win-btn btn-close" onclick="closeApp()" title="Close">&#10005;</button>
+  </div></div>
+>>>>>>> 02354fd (feat: trial sessions, usage analytics, DigitalOcean provider, UI layout)
 </div>
 
 <script>
 const { ipcRenderer } = require('electron');
 
+// ===== AI GENERATION CONFIG =====
+// maxTokens and temperature are passed to the backend /ai/text endpoint.
+// Backend must read req.body.maxTokens and req.body.temperature.
+//
+// TODO: Backend — update /ai/text handler defaults:
+//   max_tokens  : req.body.maxTokens  || 220
+//   temperature : req.body.temperature !== undefined
+//                 ? req.body.temperature : 0.25
+//   For Gemini flash models: disable thinking tokens in generationConfig
+//   For DigitalOcean: do NOT include stream_options.include_usage
+
 // ===== STATE =====
-let apiKey = '', deepseekApiKey = '', geminiApiKey = '', cerebrasApiKey = '';
+let apiKey = '', deepseekApiKey = '', geminiApiKey = '', cerebrasApiKey = '', digitaloceanApiKey = '';
+// TODO: Backend — add DigitalOcean as a provider in /ai/text route:
+//   hostname : inference.do-ai.run
+//   path     : /v1/chat/completions
+//   auth     : Bearer ${process.env.DIGITALOCEAN_API_KEY}
+//   NOTE     : Do NOT send stream_options.include_usage to DigitalOcean
 let resumeContext = '', jobContext = '';
 // Routing config - holds primary + fallback for text and vision
 let routing = {
@@ -227,6 +273,17 @@ let routing = {
   visionFallback: { provider: 'groq', model: 'meta-llama/llama-4-scout-17b-16e-instruct' }
 };
 let conversationHistory = [], currentMode = 'manual', isListening = false;
+
+// ===== USAGE TRACKING STATE =====
+// Usage is tracked locally and visible in the admin dashboard at /usage-analytics.
+var usageByProvider = {};
+var usageLog = [];
+var activeProvider = null;
+
+// ===== MEMORY STATE =====
+var memoryItems = [];       // [{ id, question, answer, timestamp }]
+var viewingMemoryId = null; // null = live view; id = frozen memory snapshot
+var liveAnswerText = '';    // saves current live answer when browsing memory
 var appPlatform = 'win32'; // updated on init via IPC
 let mediaRecorder = null, audioContext = null, analyser = null, audioChunks = [], isProcessing = false, silenceDuration = 0, speechDetected = false;
 let passiveStream = null, passiveRecorder = null, passiveAudioContext = null, passiveAnalyser = null, passiveChunks = [], passiveProcessing = false;
@@ -250,6 +307,16 @@ async function init() {
   try { appPlatform = await ipcRenderer.invoke('get-platform'); } catch(e) {}
   await reloadConfig();
   loadChatHistory();
+  loadMemoryItems();
+  // Load persisted usage data
+  try {
+    var _savedUsage = localStorage.getItem('ia-usage-data');
+    if (_savedUsage) {
+      var _parsedUsage = JSON.parse(_savedUsage);
+      usageByProvider = _parsedUsage.stats || {};
+      usageLog = _parsedUsage.log || [];
+    }
+  } catch(e) {}
   // Initialize session state from backend
   await syncSessionState();
   // Listen for session state changes from the session controller
@@ -266,6 +333,7 @@ async function reloadConfig() {
   deepseekApiKey = config.deepseekApiKey || '';
   geminiApiKey = config.geminiApiKey || '';
   cerebrasApiKey = config.cerebrasApiKey || '';
+  digitaloceanApiKey = config.digitaloceanApiKey || '';
   resumeContext = config.resumeContext || '';
   jobContext = config.jobContext || '';
   if (config.routing) {
@@ -302,6 +370,28 @@ async function syncSessionState() {
     // If session API not available, show CTA
     handleSessionStateChanged({ active: false, session_id: null, remaining_seconds: 0, warning: false, is_trial: false });
   }
+
+  // Update the subtitle based on how many sessions the user has left
+  try {
+    if (window.interviewAssistantApi && window.interviewAssistantApi.entitlement) {
+      var ent = await window.interviewAssistantApi.entitlement.get();
+      if (ent && !ent.error) {
+        var remaining = ent.session_count !== undefined ? ent.session_count
+                      : (ent.resulting_session_count !== undefined ? ent.resulting_session_count : 0);
+        var subtitle = document.getElementById('cta-subtitle');
+        if (subtitle) {
+          if (ent.lifetime_flag || ent.lifetime) {
+            subtitle.textContent = '♾️ Lifetime access — unlimited 90-min sessions';
+          } else if (Number(remaining) > 0) {
+            subtitle.textContent = Number(remaining) + ' session' + (Number(remaining) === 1 ? '' : 's') + ' remaining — first 3 are free 10-min trials';
+          } else {
+            subtitle.textContent = 'Your 3 free trials are used. Buy a pack to get 90-min sessions.';
+            document.getElementById('packs-container').classList.remove('hidden');
+          }
+        }
+      }
+    }
+  } catch(e) { /* entitlement check is best-effort */ }
 }
 
 function handleSessionStateChanged(state) {
@@ -327,6 +417,9 @@ function handleSessionStateChanged(state) {
     cta.classList.add('hidden');
     modeBar.classList.remove('hidden');
     updateSessionTimer();
+    // Show TRIAL / SESSION label
+    var typeLabel = document.getElementById('session-type-label');
+    if (typeLabel) typeLabel.textContent = sessionIsTrial ? 'Trial' : 'Session';
 
     // Show extension pop-up for paid sessions when warning triggers
     if (sessionWarning && !sessionIsTrial && !extendPopupDismissed && !extendPopupShown) {
@@ -360,9 +453,12 @@ async function startSession() {
       var result = await window.interviewAssistantApi.session.start();
       if (result && result.error) {
         if (result.error.code === 'no_sessions_remaining') {
-          // Show packs for purchase
+          // All 3 free trials used — show packs
           document.getElementById('packs-container').classList.remove('hidden');
-          document.getElementById('answer-text').textContent = 'No sessions remaining. Purchase a pack to continue.';
+          document.getElementById('cta-subtitle').textContent = 'Your 3 free trials are used. Buy a pack to get 90-min sessions.';
+          document.getElementById('answer-text').textContent = '✅ Your 3 free 10-min trial sessions have been used. Purchase a pack below to continue with full 90-minute sessions.';
+        } else if (result.error.code === 'session_already_active') {
+          document.getElementById('answer-text').textContent = 'A session is already active. Please wait for it to expire or end it first.';
         } else {
           document.getElementById('answer-text').textContent = 'Could not start session: ' + (result.error.message || result.error.code);
         }
@@ -522,7 +618,7 @@ function renderPacks(packs) {
 
 async function purchasePack(slug) {
   // Open the web app pricing page in the browser for UPI-based checkout
-  ipcRenderer.send('open-external-url', 'https://upnod.referconnect.in/pricing');
+  ipcRenderer.send('open-external-url', 'http://localhost:5173/pricing');
 }
 
 // Build a system prompt with optional resume/job context appended
@@ -551,6 +647,7 @@ function getKeyForProvider(provider) {
   if (provider === 'gemini') return geminiApiKey;
   if (provider === 'deepseek') return deepseekApiKey;
   if (provider === 'cerebras') return cerebrasApiKey;
+  if (provider === 'digitalocean') return digitaloceanApiKey;
   if (provider === 'groq') return apiKey;
   return '';
 }
@@ -719,7 +816,9 @@ async function analyzeScreenNow() {
         streamed += delta;
         answerEl.innerHTML = renderAnswer(streamed);
       },
-      'vision'
+      'vision',
+      600,
+      0.25
     );
 
     var data = await Promise.race([visionPromise, visionFirstChunkTimeout]);
@@ -1114,21 +1213,21 @@ async function toggleMic(){if(isListening){stopAllAudio();}else{var ok=await sta
 
 // ===== AI (shared) =====
 // Try primary, then fallback if primary errors. Streams tokens via onDelta.
-async function callAIStream(messages, systemPrompt, onDelta, target) {
+async function callAIStream(messages, systemPrompt, onDelta, target, maxTokens, temperature) {
   // target = 'text' or 'vision'
   var primary = target === 'vision' ? routing.visionPrimary : routing.textPrimary;
   var fallback = target === 'vision' ? routing.visionFallback : routing.textFallback;
 
   // Try primary provider via backend (backend manages API keys)
   if (primary && primary.provider && primary.model) {
-    var result = await invokeProviderStream(primary.provider, '', primary.model, messages, systemPrompt, onDelta);
+    var result = await invokeProviderStream(primary.provider, '', primary.model, messages, systemPrompt, onDelta, maxTokens, temperature);
     if (!result.error) return result;
     // Primary failed — log and try fallback if configured
     console.warn('Primary failed:', result.error.message);
     if (!fallback || !fallback.provider || !fallback.model) return result;
 
     setStatus('Primary failed, trying fallback (' + fallback.provider + ')...');
-    var fallbackResult = await invokeProviderStream(fallback.provider, '', fallback.model, messages, systemPrompt, onDelta);
+    var fallbackResult = await invokeProviderStream(fallback.provider, '', fallback.model, messages, systemPrompt, onDelta, maxTokens, temperature);
     if (fallbackResult.error) {
       return { error: { message: 'Both primary and fallback failed. Primary: ' + result.error.message + '. Fallback: ' + fallbackResult.error.message } };
     }
@@ -1137,13 +1236,13 @@ async function callAIStream(messages, systemPrompt, onDelta, target) {
 
   // No primary configured — try fallback directly
   if (fallback && fallback.provider && fallback.model) {
-    return await invokeProviderStream(fallback.provider, '', fallback.model, messages, systemPrompt, onDelta);
+    return await invokeProviderStream(fallback.provider, '', fallback.model, messages, systemPrompt, onDelta, maxTokens, temperature);
   }
 
   return { error: { message: 'No AI provider configured. Contact admin.' } };
 }
 
-async function invokeProviderStream(provider, key, model, messages, systemPrompt, onDelta) {
+async function invokeProviderStream(provider, key, model, messages, systemPrompt, onDelta, maxTokens, temperature) {
   var streamId = 'stream_' + Date.now() + '_' + Math.random();
   // Backend expects model in "provider/model" format for routing
   var fullModel = model.includes('/') ? model : (provider + '/' + model);
@@ -1156,7 +1255,8 @@ async function invokeProviderStream(provider, key, model, messages, systemPrompt
   try {
     var result = await ipcRenderer.invoke('call-ai-stream', {
       provider: provider, apiKey: key, model: fullModel,
-      messages: messages, systemPrompt: systemPrompt, streamId: streamId
+      messages: messages, systemPrompt: systemPrompt, streamId: streamId,
+      maxTokens: maxTokens || 220, temperature: temperature !== undefined ? temperature : 0.25
     });
     return result;
   } finally {
@@ -1170,6 +1270,8 @@ function getActiveApiKey() {
 }
 
 async function askQuestion(question){
+  // Exit memory view so the new live answer is shown
+  if (viewingMemoryId) exitMemoryView();
   var dot=document.getElementById('status-dot');dot.classList.remove('listening','passive','screen-active');dot.classList.add('thinking');setStatus('Getting answer...');
   var el=document.getElementById('answer-text');el.innerHTML='<span class="thinking-dots">Thinking...</span>';
   conversationHistory.push({role:'user',content:question});saveChatHistory();
@@ -1233,7 +1335,9 @@ Answer elaborately — this is a real interview, not a chatbot. Give full, thoug
         streamed+=delta;
         el.innerHTML=renderAnswer(streamed);
       },
-      'text'
+      'text',
+      220,
+      0.25
     );
 
     var data=await Promise.race([aiPromise, firstChunkTimeout]);
@@ -1251,8 +1355,24 @@ Answer elaborately — this is a real interview, not a chatbot. Give full, thoug
     }
     else{
       var ans=data.content[0].text || streamed;
-      conversationHistory.push({role:'assistant',content:ans});saveChatHistory();renderChatHistory();
-      el.innerHTML=renderAnswer(ans);
+      conversationHistory.push({role:'assistant',content:ans});saveChatHistory();
+      // Save to memory
+      liveAnswerText = renderAnswer(ans);
+      memoryItems.push({ id: Date.now(), question: question, answer: ans });
+      if (memoryItems.length > 50) memoryItems.shift();
+      saveMemoryItems();
+      if (!viewingMemoryId) renderChatHistory();
+      if (!viewingMemoryId) el.innerHTML = liveAnswerText;
+      // Estimate token usage (backend does not yet emit usage events)
+      // TODO: Backend — update /ai/text SSE handler to emit a final event:
+      //   data: {"type":"usage","provider":"...","model":"...","usage":{"prompt_tokens":N,"completion_tokens":N}}
+      var estimatedTokens = Math.ceil(ans.length / 4);
+      trackUsage({
+        provider: (routing && routing.textPrimary ? routing.textPrimary.provider : 'unknown'),
+        model:    (routing && routing.textPrimary ? routing.textPrimary.model    : 'unknown'),
+        usage: { prompt_tokens: 0, completion_tokens: estimatedTokens, total_tokens: estimatedTokens },
+        estimated: true
+      });
     }
   }catch(e){
     if(firstChunkTimer){clearTimeout(firstChunkTimer);firstChunkTimer=null;}
@@ -1273,9 +1393,132 @@ function restoreStatusDot(){var dot=document.getElementById('status-dot');if(cur
 // ===== CHAT =====
 function loadChatHistory(){try{var s=localStorage.getItem('interviewChatHistory');if(s){conversationHistory=JSON.parse(s);renderChatHistory();}}catch(e){}}
 function saveChatHistory(){try{localStorage.setItem('interviewChatHistory',JSON.stringify(conversationHistory));ipcRenderer.send('sync-chat-history', conversationHistory);}catch(e){}}
-function renderChatHistory(){var list=document.getElementById('chat-history-list');var u=conversationHistory.filter(function(m){return m.role==='user';});if(!u.length){list.innerHTML='<div class="chat-empty">No history</div>';return;}var a=conversationHistory.filter(function(m){return m.role==='assistant';});list.innerHTML=u.map(function(m,i){return '<div class="chat-item"><div class="chat-q">Q: '+escapeHtml(m.content.substring(0,60))+'</div><div class="chat-a">A: '+escapeHtml((a[i]?a[i].content:'').substring(0,100))+'</div></div>';}).join('');}
+
+function renderChatHistory() {
+  var list = document.getElementById('chat-history-list');
+  // Prefer memoryItems if available (richer — has Q+A pairs with IDs for clicking)
+  if (memoryItems && memoryItems.length) {
+    var items = memoryItems.slice().reverse();
+    list.innerHTML = items.map(function(item) {
+      var isActive = viewingMemoryId === item.id;
+      return '<div class="chat-item' + (isActive ? ' active-memory' : '') +
+        '" onclick="viewMemory(' + JSON.stringify(item.id) + ')" title="Click to view this answer">' +
+        '<div class="chat-q">Q: ' + escapeHtml((item.question || '').substring(0, 70)) + '</div>' +
+        '<div class="chat-a">A: ' + escapeHtml((item.answer || '').substring(0, 100)) + '</div>' +
+        '</div>';
+    }).join('');
+    return;
+  }
+  // Fallback: render from conversationHistory
+  var u = conversationHistory.filter(function(m){return m.role==='user';});
+  if(!u.length){list.innerHTML='<div class="chat-empty">No history</div>';return;}
+  var a = conversationHistory.filter(function(m){return m.role==='assistant';});
+  list.innerHTML = u.map(function(m,i){
+    return '<div class="chat-item"><div class="chat-q">Q: '+escapeHtml(m.content.substring(0,60))+'</div><div class="chat-a">A: '+escapeHtml((a[i]?a[i].content:'').substring(0,100))+'</div></div>';
+  }).join('');
+}
+
 function toggleChatHistory(){document.getElementById('chat-history-panel').classList.toggle('visible');document.getElementById('chat-history-btn').classList.toggle('active');}
-function clearChatHistory(){if(confirm('Clear history?')){conversationHistory=[];saveChatHistory();renderChatHistory();setStatus('Cleared');}}
+
+function clearChatHistory(){
+  if(confirm('Clear history?')){
+    conversationHistory=[];
+    memoryItems=[];
+    viewingMemoryId=null;
+    liveAnswerText='';
+    saveChatHistory();
+    saveMemoryItems();
+    document.getElementById('memory-view-banner').classList.remove('visible');
+    document.getElementById('memory-banner-q').textContent='';
+    renderChatHistory();
+    setStatus('Cleared');
+  }
+}
+
+// ===== MEMORY =====
+function loadMemoryItems() {
+  try {
+    var raw = localStorage.getItem('ia-memory-items');
+    if (raw) memoryItems = JSON.parse(raw);
+  } catch(e) { memoryItems = []; }
+}
+
+function saveMemoryItems() {
+  try {
+    if (memoryItems.length > 50) memoryItems = memoryItems.slice(-50);
+    localStorage.setItem('ia-memory-items', JSON.stringify(memoryItems));
+  } catch(e) {}
+}
+
+function viewMemory(id) {
+  var item = memoryItems.find(function(m){ return m.id === id; });
+  if (!item) return;
+  // Save current live answer before entering memory view
+  if (!viewingMemoryId) {
+    liveAnswerText = document.getElementById('answer-text').innerHTML;
+  }
+  viewingMemoryId = id;
+  var el = document.getElementById('answer-text');
+  el.innerHTML = renderAnswer(item.answer);
+  document.getElementById('memory-view-banner').classList.add('visible');
+  document.getElementById('memory-banner-q').textContent = item.question;
+  renderChatHistory();
+  // Auto-close the memory panel so the answer is visible
+  setTimeout(function() {
+    var panel = document.getElementById('chat-history-panel');
+    if (panel.classList.contains('visible')) {
+      panel.classList.remove('visible');
+      document.getElementById('chat-history-btn').classList.remove('active');
+    }
+  }, 200);
+}
+
+function exitMemoryView() {
+  viewingMemoryId = null;
+  var el = document.getElementById('answer-text');
+  el.innerHTML = liveAnswerText || 'Select a mode to get started.';
+  document.getElementById('memory-view-banner').classList.remove('visible');
+  document.getElementById('memory-banner-q').textContent = '';
+  renderChatHistory();
+}
+
+// ===== USAGE TRACKING =====
+// Persists call counts locally. Real per-user data is recorded
+// server-side and visible in the admin dashboard at /usage-analytics.
+function trackUsage(data) {
+  var p = data.provider || 'unknown';
+  var u = data.usage || {};
+  if (!usageByProvider[p]) {
+    usageByProvider[p] = { calls: 0, promptTokens: 0, compTokens: 0, totalTokens: 0 };
+  }
+  usageByProvider[p].calls++;
+  usageByProvider[p].promptTokens  += u.prompt_tokens     || 0;
+  usageByProvider[p].compTokens    += u.completion_tokens || 0;
+  usageByProvider[p].totalTokens   += u.total_tokens      || 0;
+  activeProvider = p;
+
+  usageLog.unshift({
+    time: new Date().toLocaleTimeString(),
+    provider: p, model: data.model || '',
+    tokens: u.total_tokens || 0,
+    estimated: data.estimated || false,
+    error: data.error || null
+  });
+  if (usageLog.length > 50) usageLog.length = 50;
+
+  try {
+    localStorage.setItem('ia-usage-data', JSON.stringify({ stats: usageByProvider, log: usageLog }));
+  } catch(e) {}
+}
+
+function renderUsagePanel() { /* no-op: panel removed, data lives in admin dashboard */ }
+function toggleUsagePanel()  { /* no-op: panel removed */ }
+function clearUsageData() {
+  usageByProvider = {};
+  usageLog = [];
+  activeProvider = null;
+  try { localStorage.removeItem('ia-usage-data'); } catch(e) {}
+}
 
 // ===== UTIL =====
 function handleKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();askManual();}}
@@ -1284,8 +1527,14 @@ function renderAnswer(text){return text.replace(/```(\w*)\n?([\s\S]*?)```/g,func
 function escapeHtml(t){return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function setStatus(msg){document.getElementById('status-text').textContent=msg;}
 function openSettings(){ipcRenderer.send('open-settings');}
-function minimize(){ipcRenderer.send('minimize-window');}
-function restoreWindow(){ipcRenderer.send('restore-window');}
+function minimize(){
+  document.body.classList.add('mini-mode'); // apply immediately, no IPC round-trip lag
+  ipcRenderer.send('minimize-window');
+}
+function restoreWindow(){
+  document.body.classList.remove('mini-mode'); // apply immediately
+  ipcRenderer.send('restore-window');
+}
 function closeApp(){ipcRenderer.send('close-app');}
 
 // ── Mini-mode listener ──

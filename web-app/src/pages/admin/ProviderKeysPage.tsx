@@ -3,7 +3,7 @@ import { apiRequest, ApiClientError } from '../../api/client';
 
 interface ProviderKey { provider: string; masked: string; last4: string; version: number; created_at: string; updated_at: string; }
 
-const PROVIDERS = ['gemini', 'groq', 'deepseek', 'cerebras'] as const;
+const PROVIDERS = ['gemini', 'groq', 'deepseek', 'cerebras', 'digitalocean'] as const;
 
 export default function ProviderKeysPage() {
   const [keys, setKeys] = useState<ProviderKey[]>([]);

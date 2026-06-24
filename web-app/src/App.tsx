@@ -17,6 +17,7 @@ import AdminProviderKeys from './pages/admin/ProviderKeysPage';
 import AdminAuditLog from './pages/admin/AuditLogPage';
 import AdminRateLimits from './pages/admin/RateLimitsPage';
 import AdminModelRouting from './pages/admin/ModelRoutingPage';
+import AdminUsageAnalytics from './pages/admin/UsageAnalyticsPage';
 import { isAuthSession, isAdminSession } from './api/client';
 
 function ProtectedRoute({ children, requireAdmin = false }: { children: React.ReactNode; requireAdmin?: boolean }) {
@@ -50,6 +51,7 @@ export default function App() {
         <Route path="audit-log" element={<AdminAuditLog />} />
         <Route path="rate-limits" element={<AdminRateLimits />} />
         <Route path="model-routing" element={<AdminModelRouting />} />
+        <Route path="usage-analytics" element={<AdminUsageAnalytics />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

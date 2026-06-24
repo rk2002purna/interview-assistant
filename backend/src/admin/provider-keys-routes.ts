@@ -40,7 +40,7 @@ import { writeAudit } from '../log/audit.js';
  * `provider_keys.provider` in migration 0005 and the `PROVIDERS`
  * tuple in `src/ai/keys.ts`.
  */
-const PROVIDER_VALUES = ['gemini', 'groq', 'deepseek', 'cerebras'] as const;
+const PROVIDER_VALUES = ['gemini', 'groq', 'deepseek', 'cerebras', 'digitalocean'] as const;
 type Provider = (typeof PROVIDER_VALUES)[number];
 
 /** Maximum key length per Requirement 4.1. */
