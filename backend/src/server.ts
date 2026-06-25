@@ -1,5 +1,8 @@
 import 'dotenv/config';
 import { serve } from '@hono/node-server';
+import { readdir, readFile } from 'node:fs/promises';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Pool } from 'pg';
 import { buildApp } from './app.js';
 import { loadModeConfig } from './config/mode.js';
@@ -8,9 +11,43 @@ import { buildResendEmailSenders } from './auth/resend-email-sender.js';
 import { createRazorpayClient } from './billing/razorpay-client.js';
 
 /**
- * Thin Node platform entry. Cloudflare Workers and Vercel adapters can be
- * added alongside this file without changing `buildApp`.
+ * Run all pending SQL migrations from the /migrations folder.
+ * Uses a simple applied_migrations table to track which have run.
+ * Idempotent — safe to call on every startup.
  */
+async function runMigrations(pool: Pool): Promise<void> {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const migrationsDir = join(__dirname, '..', '..', 'migrations');
+
+  // Ensure tracking table exists
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS applied_migrations (
+      name TEXT PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  const files = (await readdir(migrationsDir))
+    .filter(f => f.endsWith('.sql'))
+    .sort();
+
+  for (const file of files) {
+    const existing = await pool.query(
+      'SELECT 1 FROM applied_migrations WHERE name = $1',
+      [file],
+    );
+    if (existing.rows.length > 0) continue; // already applied
+
+    const sql = await readFile(join(migrationsDir, file), 'utf8');
+    console.log(`[migrations] applying ${file}…`);
+    await pool.query(sql);
+    await pool.query(
+      'INSERT INTO applied_migrations (name) VALUES ($1)',
+      [file],
+    );
+    console.log(`[migrations] applied  ${file}`);
+  }
+}
 const port = Number.parseInt(process.env.PORT ?? '8787', 10);
 
 // Resolve hosting mode and select the appropriate database URL.
@@ -60,7 +97,15 @@ const app = buildApp({
   ...(emailSenders ? { sendPasswordResetEmail: emailSenders.sendPasswordResetEmail } : {}),
 });
 
-serve({ fetch: app.fetch, port }, (info) => {
-  // eslint-disable-next-line no-console
-  console.log(`backend listening on http://localhost:${info.port} (mode=${mode})`);
-});
+// Run pending migrations then start the server
+runMigrations(pool)
+  .then(() => {
+    serve({ fetch: app.fetch, port }, (info) => {
+      // eslint-disable-next-line no-console
+      console.log(`backend listening on http://localhost:${info.port} (mode=${mode})`);
+    });
+  })
+  .catch((err) => {
+    console.error('[migrations] FATAL: migration failed, aborting startup', err);
+    process.exit(1);
+  });

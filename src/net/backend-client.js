@@ -33,7 +33,7 @@ const { getClientId } = require('../auth/client-id');
  * environment or a build-time constant.
  */
 const BACKEND_BASE_URL =
-  process.env.INTERVIEW_ASSISTANT_BACKEND_URL || 'http://localhost:8787';
+  process.env.INTERVIEW_ASSISTANT_BACKEND_URL || 'https://api-interview.referconnect.in';
 
 // ---------------------------------------------------------------------------
 // Auth controller interface (wired later by task 15.10)
