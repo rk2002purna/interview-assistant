@@ -17,7 +17,13 @@ import { createRazorpayClient } from './billing/razorpay-client.js';
  */
 async function runMigrations(pool: Pool): Promise<void> {
   const __dirname = dirname(fileURLToPath(import.meta.url));
-  const migrationsDir = join(__dirname, '..', '..', 'migrations');
+  // dist/server.js lives in backend/dist/, migrations live in backend/migrations/,
+  // so resolve one level up. We check a couple of candidate locations so a
+  // different deploy layout (e.g. migrations copied into dist/) still works.
+  const candidates = [
+    join(__dirname, '..', 'migrations'), // backend/migrations  (standard layout)
+    join(__dirname, 'migrations'),       // dist/migrations      (bundled layout)
+  ];
 
   // Ensure tracking table exists
   await pool.query(`
@@ -26,6 +32,24 @@ async function runMigrations(pool: Pool): Promise<void> {
       applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `);
+
+  // Pick the first existing migrations directory. Fail loudly if none is
+  // found so the deploy breaks early instead of silently skipping schema work.
+  let migrationsDir: string | undefined;
+  for (const candidate of candidates) {
+    try {
+      await readdir(candidate);
+      migrationsDir = candidate;
+      break;
+    } catch {
+      // not present; try next
+    }
+  }
+  if (!migrationsDir) {
+    throw new Error(
+      `migrations directory not found. Looked in: ${candidates.join(', ')}`,
+    );
+  }
 
   const files = (await readdir(migrationsDir))
     .filter(f => f.endsWith('.sql'))
