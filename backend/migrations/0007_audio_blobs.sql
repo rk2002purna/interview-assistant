@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS audio_blobs (
 );
 
 -- Index for cleanup of expired blobs
-CREATE INDEX idx_audio_blobs_expires_at ON audio_blobs (expires_at);
+CREATE INDEX IF NOT EXISTS idx_audio_blobs_expires_at ON audio_blobs (expires_at);
 
 -- Index for user lookups
-CREATE INDEX idx_audio_blobs_user_session ON audio_blobs (user_id, session_id);
+CREATE INDEX IF NOT EXISTS idx_audio_blobs_user_session ON audio_blobs (user_id, session_id);

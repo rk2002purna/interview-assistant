@@ -22,7 +22,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 -- -----------------------------------------------------------------------------
 -- purchases
 -- -----------------------------------------------------------------------------
-CREATE TABLE purchases (
+CREATE TABLE IF NOT EXISTS purchases (
     id                      uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id                 uuid        NOT NULL
                                         REFERENCES users(id)
@@ -67,21 +67,21 @@ CREATE TABLE purchases (
 );
 
 -- UNIQUE on order id (R10.1: one Purchase row per Razorpay_Order).
-CREATE UNIQUE INDEX purchases_razorpay_order_id_key
+CREATE UNIQUE INDEX IF NOT EXISTS purchases_razorpay_order_id_key
     ON purchases (razorpay_order_id);
 
 -- UNIQUE on payment id when present; NULLs are not considered equal in
 -- Postgres so multiple pending rows (without a payment id) are allowed.
-CREATE UNIQUE INDEX purchases_razorpay_payment_id_key
+CREATE UNIQUE INDEX IF NOT EXISTS purchases_razorpay_payment_id_key
     ON purchases (razorpay_payment_id)
     WHERE razorpay_payment_id IS NOT NULL;
 
 -- Lookup user purchase history in reverse chronological order (R10.12).
-CREATE INDEX purchases_user_id_created_at_idx
+CREATE INDEX IF NOT EXISTS purchases_user_id_created_at_idx
     ON purchases (user_id, created_at DESC);
 
 -- Lookup pending purchases for a pack (R11.7 deactivation gate).
-CREATE INDEX purchases_pack_slug_status_idx
+CREATE INDEX IF NOT EXISTS purchases_pack_slug_status_idx
     ON purchases (pack_slug, status);
 
 COMMENT ON TABLE  purchases IS
@@ -96,7 +96,7 @@ COMMENT ON COLUMN purchases.welcome_offer_applied IS
 -- -----------------------------------------------------------------------------
 -- razorpay_events (webhook dedupe + unmatched reconciliation)
 -- -----------------------------------------------------------------------------
-CREATE TABLE razorpay_events (
+CREATE TABLE IF NOT EXISTS razorpay_events (
     event_id     text        PRIMARY KEY
                              CHECK (length(event_id) BETWEEN 1 AND 255),
     event_type   text        NOT NULL
@@ -114,12 +114,12 @@ CREATE TABLE razorpay_events (
 );
 
 -- Reconciliation sweep (R10.10) walks unmatched-but-not-processed events.
-CREATE INDEX razorpay_events_unmatched_idx
+CREATE INDEX IF NOT EXISTS razorpay_events_unmatched_idx
     ON razorpay_events (received_at)
     WHERE unmatched = true AND processed = false;
 
 -- Lookup events for a given order id during reconciliation.
-CREATE INDEX razorpay_events_order_id_idx
+CREATE INDEX IF NOT EXISTS razorpay_events_order_id_idx
     ON razorpay_events (order_id)
     WHERE order_id IS NOT NULL;
 

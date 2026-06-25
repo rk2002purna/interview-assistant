@@ -24,7 +24,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 -- -----------------------------------------------------------------------------
 -- Created before entitlement_ledger because entitlement_ledger.interview_session_id
 -- references it.
-CREATE TABLE interview_sessions (
+CREATE TABLE IF NOT EXISTS interview_sessions (
     id            uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id       uuid        NOT NULL REFERENCES users(id),
     status        text        NOT NULL CHECK (status IN ('active','ended','expired')),
@@ -45,22 +45,22 @@ CREATE TABLE interview_sessions (
 );
 
 -- Requirement 8.3: a user may hold at most one active interview session at a time.
-CREATE UNIQUE INDEX one_active_session_per_user
+CREATE UNIQUE INDEX IF NOT EXISTS one_active_session_per_user
     ON interview_sessions (user_id)
     WHERE status = 'active';
 
-CREATE INDEX interview_sessions_user_started_idx
+CREATE INDEX IF NOT EXISTS interview_sessions_user_started_idx
     ON interview_sessions (user_id, started_at DESC);
 
 -- Sweep job (runSessionExpirySweep) scans for expired but still-active rows.
-CREATE INDEX interview_sessions_active_expires_idx
+CREATE INDEX IF NOT EXISTS interview_sessions_active_expires_idx
     ON interview_sessions (expires_at)
     WHERE status = 'active';
 
 -- -----------------------------------------------------------------------------
 -- entitlement_ledger (append-only)
 -- -----------------------------------------------------------------------------
-CREATE TABLE entitlement_ledger (
+CREATE TABLE IF NOT EXISTS entitlement_ledger (
     id                       uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id                  uuid        NOT NULL REFERENCES users(id),
     ts                       timestamptz NOT NULL DEFAULT clock_timestamp(),
@@ -109,10 +109,10 @@ CREATE TABLE entitlement_ledger (
         CHECK (note IS NULL OR length(note) <= 500)
 );
 
-CREATE INDEX entitlement_ledger_user_ts_idx
+CREATE INDEX IF NOT EXISTS entitlement_ledger_user_ts_idx
     ON entitlement_ledger (user_id, ts DESC);
 
-CREATE INDEX entitlement_ledger_razorpay_payment_idx
+CREATE INDEX IF NOT EXISTS entitlement_ledger_razorpay_payment_idx
     ON entitlement_ledger (razorpay_payment_id)
     WHERE razorpay_payment_id IS NOT NULL;
 
@@ -144,10 +144,14 @@ BEGIN
 END;
 $$;
 
+-- PostgreSQL has no CREATE TRIGGER IF NOT EXISTS, so DROP first for
+-- idempotency against a schema that was bootstrapped out-of-band.
+DROP TRIGGER IF EXISTS entitlement_ledger_no_update ON entitlement_ledger;
 CREATE TRIGGER entitlement_ledger_no_update
     BEFORE UPDATE ON entitlement_ledger
     FOR EACH ROW EXECUTE FUNCTION entitlement_ledger_reject_mutation();
 
+DROP TRIGGER IF EXISTS entitlement_ledger_no_delete ON entitlement_ledger;
 CREATE TRIGGER entitlement_ledger_no_delete
     BEFORE DELETE ON entitlement_ledger
     FOR EACH ROW EXECUTE FUNCTION entitlement_ledger_reject_mutation();

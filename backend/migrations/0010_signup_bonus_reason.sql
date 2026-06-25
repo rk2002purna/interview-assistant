@@ -5,7 +5,10 @@
 
 BEGIN;
 
-ALTER TABLE entitlement_ledger DROP CONSTRAINT entitlement_ledger_reason_enum;
+-- DROP ... IF EXISTS is required for idempotency: if this migration already
+-- ran (or the constraint was widened out-of-band) the DROP would otherwise
+-- fail with "constraint does not exist".
+ALTER TABLE entitlement_ledger DROP CONSTRAINT IF EXISTS entitlement_ledger_reason_enum;
 ALTER TABLE entitlement_ledger ADD CONSTRAINT entitlement_ledger_reason_enum
   CHECK (reason IN (
     'pack_purchase',
