@@ -46,6 +46,102 @@ const MIN_PAGE_SIZE = 1;
 /** Maximum allowed range span in days for admin usage aggregation. */
 const ADMIN_MAX_RANGE_DAYS = 366;
 
+// ---------------------------------------------------------------------------
+// Model analytics (GET /admin/usage/models) types & helpers
+// ---------------------------------------------------------------------------
+
+/** A single provider/model pair from the routing config. */
+interface RoutingEntry {
+  readonly provider: string;
+  readonly model: string;
+}
+
+/** Shape of the `model_routing` app_config value. */
+interface RoutingConfig {
+  readonly textPrimary: RoutingEntry;
+  readonly textFallback: RoutingEntry;
+  readonly visionPrimary: RoutingEntry;
+  readonly visionFallback: RoutingEntry;
+}
+
+/**
+ * Default routing, mirrored from `admin/model-routing-routes.ts`. Used to
+ * classify primary vs fallback usage when no config row is present.
+ */
+const DEFAULT_MODEL_ROUTING: RoutingConfig = {
+  textPrimary: { provider: 'gemini', model: 'gemini-flash-latest' },
+  textFallback: { provider: 'groq', model: 'llama-3.3-70b-versatile' },
+  visionPrimary: { provider: 'gemini', model: 'gemini-flash-latest' },
+  visionFallback: { provider: 'groq', model: 'meta-llama/llama-4-scout-17b-16e-instruct' },
+};
+
+/** Per-model aggregated summary returned by /admin/usage/models. */
+interface ModelSummary {
+  model_id: string;
+  provider: string | null;
+  operation_type: string;
+  role: 'primary' | 'fallback' | 'unknown';
+  total: number;
+  success: number;
+  failed: number;
+}
+
+/** A failed-call breakdown row returned by /admin/usage/models. */
+interface ErrorRow {
+  model_id: string;
+  provider: string | null;
+  operation_type: string;
+  upstream_http_status: number | null;
+  count: number;
+  last_seen: string;
+}
+
+/**
+ * Derive the provider name from a stored `model_id`. The desktop client
+ * sends the slug prefixed with the provider (e.g. "groq/llama-3.3-70b"),
+ * so the segment before the first "/" is the provider.
+ */
+function deriveProvider(modelId: string): string | null {
+  const slashIdx = modelId.indexOf('/');
+  if (slashIdx < 0) return null;
+  const prefix = modelId.slice(0, slashIdx).toLowerCase().trim();
+  return prefix.length > 0 ? prefix : null;
+}
+
+/**
+ * Build a normalized lookup set for routing entries so a stored `model_id`
+ * can be matched whether it arrives as "provider/model" or bare "model".
+ */
+function buildModelSlugSet(entries: readonly RoutingEntry[]): Set<string> {
+  const set = new Set<string>();
+  for (const e of entries) {
+    if (!e) continue;
+    const model = (e.model ?? '').toLowerCase().trim();
+    const provider = (e.provider ?? '').toLowerCase().trim();
+    if (model) set.add(model);
+    if (provider && model) set.add(`${provider}/${model}`);
+  }
+  return set;
+}
+
+/**
+ * Classify a stored `model_id` as the configured primary or fallback model.
+ * Comparison is done both on the full slug and on the bare model name so it
+ * is robust to whether the provider prefix was included.
+ */
+function classifyModelRole(
+  modelId: string,
+  primary: Set<string>,
+  fallback: Set<string>,
+): 'primary' | 'fallback' | 'unknown' {
+  const full = modelId.toLowerCase().trim();
+  const slashIdx = full.indexOf('/');
+  const bare = slashIdx >= 0 ? full.slice(slashIdx + 1) : full;
+  if (fallback.has(full) || fallback.has(bare)) return 'fallback';
+  if (primary.has(full) || primary.has(bare)) return 'primary';
+  return 'unknown';
+}
+
 /** Shape of a usage row returned from the database. */
 interface UsageRow {
   id: string;
@@ -421,6 +517,210 @@ export function buildUsageRouter(deps: UsageRouterDeps): Hono {
     }));
 
     return c.json({ items });
+  });
+
+  // -------------------------------------------------------------------------
+  // GET /admin/usage/models
+  //
+  // Admin-only model-level analytics. Surfaces, for the requested time range:
+  //   - which AI models users are calling (grouped by model + operation type)
+  //   - success vs failed counts per model
+  //   - error breakdown by upstream HTTP status (so failures are visible)
+  //   - whether requests are hitting the configured primary or fallback model
+  //     (fallback is decided client-side; we classify each usage row against
+  //      the stored model_routing config to surface fallback activity)
+  //
+  // Range must be ≤ 366 days. Non-admin callers receive 403 `forbidden_role`.
+  // -------------------------------------------------------------------------
+  router.get('/admin/usage/models', async (c) => {
+    // --- Admin authentication (identical 403 regardless of token validity) ---
+    const authHeader = c.req.header('Authorization');
+    const match = authHeader ? /^Bearer\s+(\S+)$/i.exec(authHeader) : null;
+    if (!match) {
+      return c.json(
+        { error: { code: 'forbidden_role', message: 'caller does not have the required role' } },
+        403,
+      );
+    }
+    try {
+      const claims = await verifyAccess(match[1]!);
+      if (claims.role !== 'admin') {
+        return c.json(
+          { error: { code: 'forbidden_role', message: 'caller does not have the required role' } },
+          403,
+        );
+      }
+    } catch (err) {
+      if (err instanceof JwtError) {
+        return c.json(
+          { error: { code: 'forbidden_role', message: 'caller does not have the required role' } },
+          403,
+        );
+      }
+      throw err;
+    }
+
+    // --- Parse and validate query parameters (same rules as /admin/usage) ---
+    const now = getNow();
+    const fromParam = c.req.query('from');
+    const toParam = c.req.query('to');
+
+    let fromDate: Date;
+    let toDate: Date;
+
+    if (fromParam) {
+      const parsed = new Date(fromParam);
+      if (isNaN(parsed.getTime())) {
+        return c.json(
+          { error: { code: 'invalid_range', message: 'invalid from date format' } },
+          400,
+        );
+      }
+      fromDate = parsed;
+    } else {
+      fromDate = new Date(now.getTime() - DEFAULT_RANGE_DAYS * 24 * 60 * 60 * 1000);
+    }
+
+    if (toParam) {
+      const parsed = new Date(toParam);
+      if (isNaN(parsed.getTime())) {
+        return c.json(
+          { error: { code: 'invalid_range', message: 'invalid to date format' } },
+          400,
+        );
+      }
+      toDate = parsed;
+    } else {
+      toDate = now;
+    }
+
+    if (fromDate.getTime() >= toDate.getTime()) {
+      return c.json(
+        { error: { code: 'invalid_range', message: 'from must be before to' } },
+        400,
+      );
+    }
+
+    const rangeDays = (toDate.getTime() - fromDate.getTime()) / (24 * 60 * 60 * 1000);
+    if (rangeDays > ADMIN_MAX_RANGE_DAYS) {
+      return c.json(
+        {
+          error: {
+            code: 'invalid_range',
+            message: `date range must not exceed ${ADMIN_MAX_RANGE_DAYS} days`,
+          },
+        },
+        400,
+      );
+    }
+
+    // --- Load model routing config so we can classify primary vs fallback ---
+    let routing: RoutingConfig = DEFAULT_MODEL_ROUTING;
+    try {
+      const cfg = await deps.pool.query<{ value: string }>(
+        `SELECT value FROM app_config WHERE key = 'model_routing' LIMIT 1`,
+      );
+      if (cfg.rows[0]?.value) {
+        routing = { ...DEFAULT_MODEL_ROUTING, ...JSON.parse(cfg.rows[0].value) };
+      }
+    } catch {
+      // Fall back to defaults if the config row is missing or malformed.
+    }
+    const primarySlugs = buildModelSlugSet([routing.textPrimary, routing.visionPrimary]);
+    const fallbackSlugs = buildModelSlugSet([routing.textFallback, routing.visionFallback]);
+
+    // --- Aggregate usage by model / operation / status / upstream status ---
+    const sql = `
+      SELECT model_id,
+             operation_type,
+             status,
+             upstream_http_status,
+             COUNT(*)::int AS count,
+             MAX(ts)       AS last_seen
+        FROM usage
+       WHERE ts >= $1
+         AND ts <= $2
+       GROUP BY model_id, operation_type, status, upstream_http_status
+    `;
+    const result = await deps.pool.query<{
+      model_id: string;
+      operation_type: string;
+      status: string;
+      upstream_http_status: number | null;
+      count: number;
+      last_seen: Date | string;
+    }>(sql, [fromDate.toISOString(), toDate.toISOString()]);
+
+    // Build per-model summaries and an error breakdown.
+    const modelMap = new Map<string, ModelSummary>();
+    const errors: ErrorRow[] = [];
+    let total = 0;
+    let totalSuccess = 0;
+    let totalFailed = 0;
+
+    for (const row of result.rows) {
+      const provider = deriveProvider(row.model_id);
+      const role = classifyModelRole(row.model_id, primarySlugs, fallbackSlugs);
+      const key = `${row.model_id}__${row.operation_type}`;
+
+      let summary = modelMap.get(key);
+      if (!summary) {
+        summary = {
+          model_id: row.model_id,
+          provider,
+          operation_type: row.operation_type,
+          role,
+          total: 0,
+          success: 0,
+          failed: 0,
+        };
+        modelMap.set(key, summary);
+      }
+      summary.total += row.count;
+      total += row.count;
+      if (row.status === 'success') {
+        summary.success += row.count;
+        totalSuccess += row.count;
+      } else {
+        summary.failed += row.count;
+        totalFailed += row.count;
+        errors.push({
+          model_id: row.model_id,
+          provider,
+          operation_type: row.operation_type,
+          upstream_http_status: row.upstream_http_status,
+          count: row.count,
+          last_seen:
+            row.last_seen instanceof Date
+              ? row.last_seen.toISOString()
+              : new Date(row.last_seen).toISOString(),
+        });
+      }
+    }
+
+    const models = Array.from(modelMap.values()).sort((a, b) => b.total - a.total);
+    errors.sort((a, b) => b.count - a.count);
+
+    // Fallback vs primary call volume across all classified rows.
+    const fallbackCount = models
+      .filter((m) => m.role === 'fallback')
+      .reduce((sum, m) => sum + m.total, 0);
+    const primaryCount = models
+      .filter((m) => m.role === 'primary')
+      .reduce((sum, m) => sum + m.total, 0);
+
+    return c.json({
+      models,
+      errors,
+      routing,
+      totals: {
+        total,
+        success: totalSuccess,
+        failed: totalFailed,
+        primary: primaryCount,
+        fallback: fallbackCount,
+      },
+    });
   });
 
   return router;

@@ -8,11 +8,46 @@ interface AggItem { user_id: string; operation_type: string; calendar_day_utc: s
 interface PerUser  { user_id: string; total: number; text: number; vision: number; audio: number; lastSeen: string; }
 interface PerDay   { date: string;    total: number; text: number; vision: number; audio: number; }
 
+// Model analytics (GET /admin/usage/models)
+interface ModelSummary {
+  model_id: string;
+  provider: string | null;
+  operation_type: string;
+  role: 'primary' | 'fallback' | 'unknown';
+  total: number;
+  success: number;
+  failed: number;
+}
+interface ModelErrorRow {
+  model_id: string;
+  provider: string | null;
+  operation_type: string;
+  upstream_http_status: number | null;
+  count: number;
+  last_seen: string;
+}
+interface ModelAnalytics {
+  models: ModelSummary[];
+  errors: ModelErrorRow[];
+  routing: Record<string, { provider: string; model: string }>;
+  totals: { total: number; success: number; failed: number; primary: number; fallback: number };
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 function fmtDate(iso: string) {
   return new Date(iso + 'T00:00:00Z').toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
+function roleBadge(role: 'primary' | 'fallback' | 'unknown'): React.CSSProperties {
+  const base: React.CSSProperties = {
+    display: 'inline-block', padding: '0.125rem 0.5rem', borderRadius: 12,
+    fontSize: '0.75rem', fontWeight: 600, textTransform: 'capitalize',
+  };
+  if (role === 'primary')  return { ...base, background: 'rgba(59,130,246,0.15)', color: '#60a5fa' };
+  if (role === 'fallback') return { ...base, background: 'rgba(245,158,11,0.15)', color: '#fbbf24' };
+  return { ...base, background: 'rgba(255,255,255,0.06)', color: '#94a3b8' };
 }
 function byUser(items: AggItem[]): PerUser[] {
   const m = new Map<string, PerUser>();
@@ -104,10 +139,11 @@ const RANGES = [{ label: 'Last 7 days', days: 7 }, { label: 'Last 30 days', days
 export default function UsageAnalyticsPage() {
   const [range,     setRange]     = useState(30);
   const [items,     setItems]     = useState<AggItem[]>([]);
+  const [models,    setModels]    = useState<ModelAnalytics | null>(null);
   const [emailMap,  setEmailMap]  = useState<Map<string, string>>(new Map());
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState('');
-  const [tab,       setTab]       = useState<'chart'|'users'|'daily'>('chart');
+  const [tab,       setTab]       = useState<'chart'|'models'|'errors'|'users'|'daily'>('chart');
 
   const load = useCallback(async (days: number) => {
     setLoading(true); setError('');
@@ -115,12 +151,14 @@ export default function UsageAnalyticsPage() {
       const to   = new Date();
       const from = new Date(to.getTime() - days * 86_400_000);
       const qs   = new URLSearchParams({ from: from.toISOString(), to: to.toISOString() });
-      // Load usage + user emails in parallel
-      const [usageData, emailLookup] = await Promise.all([
+      // Load usage + model analytics + user emails in parallel
+      const [usageData, modelData, emailLookup] = await Promise.all([
         apiRequest<{ items: AggItem[] }>(`/admin/usage?${qs}`),
+        apiRequest<ModelAnalytics>(`/admin/usage/models?${qs}`),
         fetchUserEmailMap(),
       ]);
       setItems(usageData.items);
+      setModels(modelData);
       setEmailMap(emailLookup);
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'Failed to load usage.');
@@ -175,7 +213,7 @@ export default function UsageAnalyticsPage() {
 
       {/* Tabs */}
       <div style={s.tabs}>
-        {([['chart','📊 Daily Chart'],['users','👤 By User'],['daily','📅 Daily Breakdown']] as const).map(([id, lbl]) => (
+        {([['chart','📊 Daily Chart'],['models','🤖 Models'],['errors','⚠️ Errors & Fallback'],['users','👤 By User'],['daily','📅 Daily Breakdown']] as const).map(([id, lbl]) => (
           <button key={id} style={{ ...s.tab, ...(tab === id ? s.tabOn : {}) }} onClick={() => setTab(id)}>{lbl}</button>
         ))}
       </div>
@@ -185,6 +223,96 @@ export default function UsageAnalyticsPage() {
         <>
           <h2 style={s.secTitle}>Daily Operations — last {Math.min(range, 30)} days</h2>
           {loading ? <p style={s.dim}>Loading…</p> : <BarChart days={days} />}
+        </>
+      )}
+
+      {/* Models tab */}
+      {tab === 'models' && (
+        <>
+          <h2 style={s.secTitle}>Models Called by Users</h2>
+          {loading ? <p style={s.dim}>Loading…</p> : !models || models.models.length === 0 ? <p style={s.dim}>No model usage for this period.</p> : (
+            <div style={s.tblWrap}>
+              <table style={s.tbl}>
+                <thead><tr>{['Model','Provider','Type','Role','Total','Success','Failed','Success Rate'].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {models.models.map(m => {
+                    const rate = m.total > 0 ? (m.success / m.total) * 100 : 0;
+                    return (
+                      <tr key={m.model_id + m.operation_type} style={s.tr}>
+                        <td style={s.td}><span style={s.mono}>{m.model_id}</span></td>
+                        <td style={s.td}>{m.provider ?? '—'}</td>
+                        <td style={s.td}>{m.operation_type}</td>
+                        <td style={s.td}><span style={roleBadge(m.role)}>{m.role}</span></td>
+                        <td style={s.td}><strong style={{ color: '#f1f5f9' }}>{m.total}</strong></td>
+                        <td style={s.td}><span style={{ ...s.badge, background:'rgba(16,185,129,0.15)', color:'#34d399' }}>{m.success}</span></td>
+                        <td style={s.td}>{m.failed > 0
+                          ? <span style={{ ...s.badge, background:'rgba(239,68,68,0.15)', color:'#fca5a5' }}>{m.failed}</span>
+                          : <span style={s.dim}>0</span>}
+                        </td>
+                        <td style={s.td}>
+                          <span style={{ color: rate >= 95 ? '#34d399' : rate >= 80 ? '#fbbf24' : '#fca5a5', fontWeight: 600 }}>
+                            {rate.toFixed(1)}%
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Errors & Fallback tab */}
+      {tab === 'errors' && (
+        <>
+          {models && (
+            <div style={s.kpis}>
+              {[
+                { label: 'Failed Calls',  val: models.totals.failed.toLocaleString(), color: '#fca5a5' },
+                { label: 'Error Rate',    val: (models.totals.total > 0 ? ((models.totals.failed / models.totals.total) * 100).toFixed(1) : '0') + '%', color: '#f1f5f9' },
+                { label: 'Fallback Calls',val: models.totals.fallback.toLocaleString(), color: '#fbbf24' },
+                { label: 'Primary Calls', val: models.totals.primary.toLocaleString(), color: '#60a5fa' },
+              ].map(k => (
+                <div key={k.label} style={s.kpi}>
+                  <div style={{ ...s.kpiVal, color: k.color }}>{loading ? '…' : k.val}</div>
+                  <div style={s.kpiLbl}>{k.label}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {models && models.totals.fallback > 0 && (
+            <div style={s.fallbackBanner}>
+              ⚠️ Fallback is active — {models.totals.fallback.toLocaleString()} call(s) hit a configured fallback model.
+              This usually means a primary provider was failing or unavailable.
+            </div>
+          )}
+
+          <h2 style={s.secTitle}>Errors by Model</h2>
+          {loading ? <p style={s.dim}>Loading…</p> : !models || models.errors.length === 0 ? <p style={s.dim}>🎉 No failed calls in this period.</p> : (
+            <div style={s.tblWrap}>
+              <table style={s.tbl}>
+                <thead><tr>{['Model','Provider','Type','Upstream HTTP','Failures','Last Seen'].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {models.errors.map((e, i) => (
+                    <tr key={e.model_id + e.operation_type + (e.upstream_http_status ?? 'x') + i} style={s.tr}>
+                      <td style={s.td}><span style={s.mono}>{e.model_id}</span></td>
+                      <td style={s.td}>{e.provider ?? '—'}</td>
+                      <td style={s.td}>{e.operation_type}</td>
+                      <td style={s.td}>{e.upstream_http_status != null
+                        ? <span style={{ ...s.badge, background:'rgba(239,68,68,0.15)', color:'#fca5a5' }}>{e.upstream_http_status}</span>
+                        : <span style={s.dim}>network / timeout</span>}
+                      </td>
+                      <td style={s.td}><strong style={{ color: '#f1f5f9' }}>{e.count}</strong></td>
+                      <td style={s.td}>{new Date(e.last_seen).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </>
       )}
 
@@ -261,6 +389,7 @@ const s: Record<string, React.CSSProperties> = {
   rBtn:     { padding:'0.375rem 0.75rem', border:'1px solid rgba(255,255,255,0.1)', borderRadius:6, background:'rgba(255,255,255,0.04)', fontSize:'0.8125rem', cursor:'pointer', color:'#94a3b8' },
   rBtnOn:   { background:'rgba(59,130,246,0.2)', borderColor:'rgba(59,130,246,0.4)', color:'#60a5fa' },
   err:      { padding:'0.75rem', background:'rgba(239,68,68,0.1)', border:'1px solid rgba(239,68,68,0.3)', borderRadius:6, color:'#fca5a5', fontSize:'0.875rem', marginBottom:'1rem' },
+  fallbackBanner: { padding:'0.75rem', background:'rgba(245,158,11,0.1)', border:'1px solid rgba(245,158,11,0.3)', borderRadius:6, color:'#fbbf24', fontSize:'0.875rem', marginBottom:'1.25rem' },
   kpis:     { display:'flex', gap:'1rem', marginBottom:'1.5rem', flexWrap:'wrap' },
   kpi:      { flex:'1 1 130px', background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)', borderRadius:8, padding:'1rem 1.25rem', textAlign:'center' as const },
   kpiVal:   { fontSize:'1.75rem', fontWeight:700, lineHeight:1.2 },
