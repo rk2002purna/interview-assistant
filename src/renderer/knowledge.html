@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Knowledge Base — UpNod</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: rgba(15,15,25,0.95);
+      color: #e2e8f0;
+      user-select: none;
+      border: 1px solid rgba(99,179,237,0.15);
+      border-radius: 10px;
+      height: 100vh;
+      overflow: hidden;
+    }
+    #titlebar {
+      -webkit-app-region: drag;
+      background: transparent;
+      padding: 8px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    #titlebar .title { font-size: 12px; color: #a0aec0; font-weight: 600; }
+    .win-btn {
+      -webkit-app-region: no-drag;
+      width: 20px; height: 20px; border-radius: 50%; border: none;
+      cursor: pointer; font-size: 10px; display: flex; align-items: center;
+      justify-content: center; transition: opacity 0.2s;
+    }
+    .win-btn:hover { opacity: 0.8; }
+    .btn-close { background: #fc5c65; color: #7a0000; }
+    #content { padding: 16px 20px 20px; overflow-y: auto; height: calc(100vh - 40px); }
+    h1 { font-size: 18px; color: #63b3ed; margin-bottom: 4px; }
+    .sub { font-size: 12px; color: #4a5568; margin-bottom: 20px; }
+
+    .section {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(99,179,237,0.15);
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 14px;
+    }
+    .section h2 { font-size: 13px; color: #a0aec0; margin-bottom: 10px; font-weight: 600; }
+
+    button {
+      background: linear-gradient(135deg, #4299e1, #3182ce);
+      border: none;
+      color: white;
+      padding: 8px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      transition: opacity 0.2s;
+    }
+    button:hover { opacity: 0.85; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.danger {
+      background: linear-gradient(135deg, #e53e3e, #c53030);
+    }
+    button.secondary {
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: #a0aec0;
+    }
+
+    .btn-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+    /* PDF List */
+    .pdf-list { max-height: 200px; overflow-y: auto; margin-top: 8px; }
+    .pdf-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 6px 10px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 6px;
+      margin-bottom: 4px;
+      font-size: 12px;
+    }
+    .pdf-item .pdf-name { color: #e2e8f0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pdf-item .pdf-meta { color: #4a5568; font-size: 11px; margin-left: 8px; white-space: nowrap; }
+    .pdf-item .pdf-del {
+      background: none; border: none; color: #e53e3e; cursor: pointer;
+      font-size: 14px; padding: 2px 6px; margin-left: 4px; border-radius: 4px;
+    }
+    .pdf-item .pdf-del:hover { background: rgba(229,62,62,0.15); }
+
+    .empty-state { color: #4a5568; font-size: 12px; font-style: italic; padding: 8px 0; }
+
+    /* Status area */
+    #status-area {
+      margin-top: 10px;
+      padding: 10px;
+      background: rgba(255,255,255,0.03);
+      border-radius: 8px;
+      font-size: 12px;
+    }
+    #status-area .status-label { color: #a0aec0; margin-bottom: 4px; }
+    #status-area .status-value { color: #63b3ed; font-weight: 600; }
+    #status-area .status-error { color: #fc8181; }
+    #status-area .status-ready { color: #68d391; }
+
+    /* Progress bar */
+    .progress-container { margin-top: 8px; display: none; }
+    .progress-container.visible { display: block; }
+    .progress-bar {
+      width: 100%;
+      height: 6px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #4299e1, #63b3ed);
+      border-radius: 3px;
+      transition: width 0.3s ease;
+      width: 0%;
+    }
+    .progress-text { font-size: 11px; color: #a0aec0; margin-top: 4px; }
+
+    /* Stats */
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+    .stat-item {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 6px;
+      padding: 8px 10px;
+    }
+    .stat-item .stat-label { font-size: 11px; color: #4a5568; }
+    .stat-item .stat-value { font-size: 14px; color: #e2e8f0; font-weight: 600; }
+  </style>
+</head>
+<body>
+<div id="titlebar">
+  <span class="title">📚 Knowledge Base</span>
+  <button class="win-btn btn-close" onclick="window.close()" title="Close">&#10005;</button>
+</div>
+
+<div id="content">
+  <h1>Guidewire Knowledge Base</h1>
+  <p class="sub">Upload PDFs to build a local RAG index for interview-specific answers.</p>
+
+  <!-- Upload Section -->
+  <div class="section">
+    <h2>📄 PDF Documents</h2>
+    <div class="btn-row">
+      <button id="btn-upload" onclick="selectPdfs()">+ Add PDFs</button>
+      <button id="btn-rebuild" class="secondary" onclick="rebuildIndex()">🔄 Rebuild Index</button>
+    </div>
+    <div class="pdf-list" id="pdf-list">
+      <div class="empty-state">No PDFs uploaded yet.</div>
+    </div>
+  </div>
+
+  <!-- Status Section -->
+  <div class="section">
+    <h2>📊 Index Status</h2>
+    <div id="status-area">
+      <div class="status-label">Status</div>
+      <div class="status-value" id="status-text">Not indexed</div>
+    </div>
+    <div class="progress-container" id="progress-container">
+      <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+      <div class="progress-text" id="progress-text"></div>
+    </div>
+    <div class="stats-grid" id="stats-grid" style="display:none;">
+      <div class="stat-item"><div class="stat-label">PDFs</div><div class="stat-value" id="stat-pdfs">0</div></div>
+      <div class="stat-item"><div class="stat-label">Pages</div><div class="stat-value" id="stat-pages">0</div></div>
+      <div class="stat-item"><div class="stat-label">Chunks</div><div class="stat-value" id="stat-chunks">0</div></div>
+      <div class="stat-item"><div class="stat-label">Model</div><div class="stat-value" id="stat-model">—</div></div>
+    </div>
+  </div>
+
+  <!-- Danger Zone -->
+  <div class="section">
+    <h2>⚠️ Manage</h2>
+    <div class="btn-row">
+      <button class="danger" id="btn-delete" onclick="deleteKnowledgeBase()">🗑️ Delete Knowledge Base</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const { ipcRenderer } = require('electron');
+
+let pollingInterval = null;
+
+async function selectPdfs() {
+  const btn = document.getElementById('btn-upload');
+  btn.disabled = true;
+  btn.textContent = 'Selecting...';
+
+  try {
+    const result = await ipcRenderer.invoke('knowledge:select-pdfs');
+    if (result.success) {
+      await refreshPdfList();
+    }
+  } catch (e) {
+    console.error('[Knowledge UI] Select error:', e);
+  }
+
+  btn.disabled = false;
+  btn.textContent = '+ Add PDFs';
+}
+
+async function refreshPdfList() {
+  try {
+    const result = await ipcRenderer.invoke('knowledge:list-pdfs');
+    const list = document.getElementById('pdf-list');
+
+    if (!result.files || result.files.length === 0) {
+      list.innerHTML = '<div class="empty-state">No PDFs uploaded yet.</div>';
+      return;
+    }
+
+    list.innerHTML = result.files.map(f =>
+      `<div class="pdf-item">
+        <span class="pdf-name" title="${f.name}">${f.name}</span>
+        <span class="pdf-meta">${f.sizeFormatted}</span>
+        <button class="pdf-del" onclick="deletePdf('${f.name.replace(/'/g, "\\'")}')" title="Remove">×</button>
+      </div>`
+    ).join('');
+  } catch (e) {
+    console.error('[Knowledge UI] List error:', e);
+  }
+}
+
+async function deletePdf(fileName) {
+  if (!confirm(`Remove "${fileName}" from knowledge base?`)) return;
+  try {
+    await ipcRenderer.invoke('knowledge:delete-pdf', fileName);
+    await refreshPdfList();
+  } catch (e) {
+    console.error('[Knowledge UI] Delete PDF error:', e);
+  }
+}
+
+async function rebuildIndex() {
+  const btn = document.getElementById('btn-rebuild');
+  btn.disabled = true;
+  btn.textContent = '⏳ Indexing...';
+
+  // Start progress polling
+  startProgressPolling();
+
+  try {
+    const result = await ipcRenderer.invoke('knowledge:rebuild-index');
+    if (result.success) {
+      showStatus('ready', result.message);
+      showStats(result);
+    } else {
+      showStatus('error', result.message);
+    }
+  } catch (e) {
+    showStatus('error', 'Indexing failed: ' + e.message);
+  }
+
+  stopProgressPolling();
+  btn.disabled = false;
+  btn.textContent = '🔄 Rebuild Index';
+}
+
+async function deleteKnowledgeBase() {
+  if (!confirm('Delete the entire knowledge base? This removes all PDFs and the vector index.')) return;
+
+  const btn = document.getElementById('btn-delete');
+  btn.disabled = true;
+
+  try {
+    const result = await ipcRenderer.invoke('knowledge:delete');
+    if (result.success) {
+      showStatus('idle', 'Knowledge base deleted.');
+      document.getElementById('stats-grid').style.display = 'none';
+      await refreshPdfList();
+    } else {
+      showStatus('error', result.message);
+    }
+  } catch (e) {
+    showStatus('error', 'Delete failed: ' + e.message);
+  }
+
+  btn.disabled = false;
+}
+
+function showStatus(type, message) {
+  const el = document.getElementById('status-text');
+  el.textContent = message;
+  el.className = 'status-value';
+  if (type === 'error') el.classList.add('status-error');
+  else if (type === 'ready') el.classList.add('status-ready');
+}
+
+function showStats(data) {
+  const grid = document.getElementById('stats-grid');
+  grid.style.display = 'grid';
+  document.getElementById('stat-pdfs').textContent = data.pdfCount || 0;
+  document.getElementById('stat-pages').textContent = data.pageCount || 0;
+  document.getElementById('stat-chunks').textContent = data.chunkCount || 0;
+  document.getElementById('stat-model').textContent = data.embeddingModel || 'MiniLM-L6';
+}
+
+function startProgressPolling() {
+  const container = document.getElementById('progress-container');
+  container.classList.add('visible');
+
+  pollingInterval = setInterval(async () => {
+    try {
+      const { progress } = await ipcRenderer.invoke('knowledge:status');
+      if (progress) {
+        const fill = document.getElementById('progress-fill');
+        const text = document.getElementById('progress-text');
+        text.textContent = progress.message || '';
+
+        // Estimate progress percentage
+        if (progress.totalPdfs > 0 && progress.currentPdf > 0) {
+          const pct = Math.round((progress.currentPdf / progress.totalPdfs) * 100);
+          fill.style.width = pct + '%';
+        } else if (progress.phase === 'ready') {
+          fill.style.width = '100%';
+        }
+
+        showStatus(progress.phase, progress.message);
+      }
+    } catch (e) { /* ignore */ }
+  }, 500);
+}
+
+function stopProgressPolling() {
+  if (pollingInterval) {
+    clearInterval(pollingInterval);
+    pollingInterval = null;
+  }
+  const container = document.getElementById('progress-container');
+  setTimeout(() => { container.classList.remove('visible'); }, 2000);
+}
+
+// Load initial state
+async function init() {
+  await refreshPdfList();
+
+  try {
+    const { status } = await ipcRenderer.invoke('knowledge:status');
+    if (status && status.indexed) {
+      showStatus('ready', `Index ready: ${status.chunkCount} chunks from ${status.pdfCount} PDFs`);
+      showStats(status);
+    } else if (status && status.error) {
+      showStatus('error', status.error);
+    }
+  } catch (e) { /* ignore */ }
+}
+
+init();
+</script>
+</body>
+</html>
