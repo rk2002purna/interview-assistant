@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const { readActiveWindowText } = require('./screen-reader');
 const { backendRequest } = require('./net/backend-client');
+const { registerKnowledgeIpc } = require('./main/knowledgeIpc');
 
 // ── Browser Auth Configuration ─────────────────────────────────────────────
 const WEB_APP_URL = process.env.WEB_APP_URL || 'https://upnod.referconnect.in';
@@ -95,6 +96,7 @@ const { setAuthController } = require('./net/backend-client');
 
 let mainWindow;
 let settingsWindow;
+let knowledgeWindow;
 
 function createMainWindow() {
   mainWindow = new BrowserWindow({
@@ -160,11 +162,30 @@ function createSettingsWindow() {
   settingsWindow.on('closed', () => settingsWindow = null);
 }
 
+function createKnowledgeBaseWindow() {
+  if (knowledgeWindow) { knowledgeWindow.focus(); return; }
+  knowledgeWindow = new BrowserWindow({
+    width: 520,
+    height: 580,
+    icon: path.join(__dirname, 'assets', 'icon.png'),
+    frame: false,
+    transparent: true,
+    skipTaskbar: true,
+    resizable: true,
+    webPreferences: { nodeIntegration: true, contextIsolation: false, preload: path.join(__dirname, 'preload.js') }
+  });
+  knowledgeWindow.loadFile(path.join(__dirname, 'renderer', 'knowledge.html'));
+  knowledgeWindow.on('closed', () => knowledgeWindow = null);
+}
+
 app.whenReady().then(() => {
   // Remove the default menu bar (File, Edit, View, etc.) from all windows
   Menu.setApplicationMenu(null);
 
   createMainWindow();
+
+  // Register Knowledge Base IPC handlers
+  registerKnowledgeIpc();
 
   // Register custom protocol for browser OAuth callback.
   // In development we force re-register on every startup because the old
@@ -190,6 +211,7 @@ app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createMainWindow(); });
 
 ipcMain.on('open-settings', () => createSettingsWindow());
+ipcMain.on('open-knowledge', () => createKnowledgeBaseWindow());
 
 // ── Mini-mode (collapse to floating yellow button) ──────────────────────────
 let miniMode = false;

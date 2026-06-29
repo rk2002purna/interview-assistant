@@ -35,7 +35,15 @@
           ]
         }
       ],
-      "signAndEditExecutable": false
+      "signAndEditExecutable": false,
+      "asarUnpack": [
+        "node_modules/@lancedb/**",
+        "node_modules/apache-arrow/**",
+        "node_modules/pdfjs-dist/**",
+        "node_modules/@xenova/**",
+        "node_modules/onnxruntime-node/**",
+        "node_modules/sharp/**"
+      ]
     },
     "nsis": {
       "oneClick": true,
@@ -62,7 +70,15 @@
           ]
         }
       ],
-      "category": "public.app-category.productivity"
+      "category": "public.app-category.productivity",
+      "asarUnpack": [
+        "node_modules/@lancedb/**",
+        "node_modules/apache-arrow/**",
+        "node_modules/pdfjs-dist/**",
+        "node_modules/@xenova/**",
+        "node_modules/onnxruntime-node/**",
+        "node_modules/sharp/**"
+      ]
     },
     "dmg": {
       "contents": [
@@ -80,6 +96,9 @@
     }
   },
   "dependencies": {
+    "@lancedb/lancedb": "^0.13.0",
+    "@xenova/transformers": "^2.17.2",
+    "pdfjs-dist": "^4.9.155",
     "resend": "^6.12.3",
     "tesseract.js": "^5.1.1"
   }

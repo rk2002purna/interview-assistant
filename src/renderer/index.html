@@ -14,6 +14,7 @@
     .btn-close { background: #fc5c65; color: #7a0000; }
     .btn-min { background: #fed330; color: #7a5500; }
     .btn-set { background: #45aaf2; color: #003060; }
+    .btn-kb { background: #a78bfa; color: #2d1b69; font-size: 9px; }
     /* Session badge */
     #session-badge { padding: 4px 14px; display: flex; align-items: center; gap: 8px; background: rgba(72,187,120,0.1); border-bottom: 1px solid rgba(72,187,120,0.2); flex-shrink: 0; font-size: 11px; }
     #session-badge.hidden { display: none; }
@@ -240,6 +241,7 @@
   </div>
   <!-- Titlebar with window buttons — pinned at bottom -->
   <div id="titlebar"><div class="win-btns">
+    <button class="win-btn btn-kb" onclick="openKnowledge()" title="Knowledge Base">&#128218;</button>
     <button class="win-btn btn-set" onclick="openSettings()" title="Settings">&#9881;</button>
     <button class="win-btn btn-min" onclick="minimize()" title="Minimize">&minus;</button>
     <button class="win-btn btn-close" onclick="closeApp()" title="Close">&#10005;</button>
@@ -1253,6 +1255,28 @@ async function askQuestion(question){
   var firstChunkTimer=null;
   var timedOut=false;
   try{
+    // === RAG Context Injection ===
+    var ragContext = null;
+    var ragSources = [];
+    try {
+      if (window.knowledgeBase && window.knowledgeBase.ragSearch) {
+        var ragResult = await window.knowledgeBase.ragSearch(question);
+        if (ragResult && ragResult.usedRag && ragResult.context) {
+          ragContext = ragResult.context;
+          ragSources = ragResult.sources || [];
+          console.log('[Knowledge] RAG context injected:', ragSources.length, 'sources');
+        }
+      }
+    } catch(ragErr) {
+      console.log('[Knowledge] RAG search failed (falling back to normal LLM):', ragErr.message);
+    }
+
+    // Build system prompt with optional RAG context
+    var baseSystemPrompt = 'You are a real-time interview assistant. Give concise direct answers. For coding: working code. For behavioral: STAR method. Keep under 200 words unless complex. No preamble.';
+    if (ragContext) {
+      baseSystemPrompt += '\n\n=== GUIDEWIRE KNOWLEDGE BASE CONTEXT ===\nUse the following reference material from Guidewire documentation to inform your answer. Cite the source and page when relevant. If the context does not contain relevant information, answer from your general knowledge.\n\n' + ragContext + '\n\n=== END KNOWLEDGE BASE CONTEXT ===';
+    }
+
     // Set up 30-second first-chunk timeout (Req 16.8)
     var firstChunkPromiseReject=null;
     var firstChunkTimeout=new Promise(function(_,reject){
@@ -1263,7 +1287,7 @@ async function askQuestion(question){
     });
 
     var aiPromise=callAIStream(conversationHistory.slice(-6),
-      buildSystemPrompt('You are a real-time interview assistant. Give concise direct answers. For coding: working code. For behavioral: STAR method. Keep under 200 words unless complex. No preamble.'),
+      buildSystemPrompt(baseSystemPrompt),
       function(delta){
         if(firstChunkTimer){clearTimeout(firstChunkTimer);firstChunkTimer=null;}
         if(firstChunk){ el.innerHTML=''; firstChunk=false; setStatus('Answering...'); }
@@ -1462,6 +1486,7 @@ function renderAnswer(text){return text.replace(/```(\w*)\n?([\s\S]*?)```/g,func
 function escapeHtml(t){return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function setStatus(msg){document.getElementById('status-text').textContent=msg;}
 function openSettings(){ipcRenderer.send('open-settings');}
+function openKnowledge(){ipcRenderer.send('open-knowledge');}
 function minimize(){
   document.body.classList.add('mini-mode'); // apply immediately, no IPC round-trip lag
   ipcRenderer.send('minimize-window');

@@ -83,3 +83,17 @@ try {
   // contextIsolation is disabled — assign directly to window
   window.interviewAssistantApi = interviewAssistantApi;
 }
+
+// =============================================================================
+// Knowledge Base bridge (RAG system)
+// =============================================================================
+window.knowledgeBase = {
+  selectPdfs: () => ipcRenderer.invoke('knowledge:select-pdfs'),
+  listPdfs: () => ipcRenderer.invoke('knowledge:list-pdfs'),
+  rebuildIndex: () => ipcRenderer.invoke('knowledge:rebuild-index'),
+  deleteKnowledgeBase: () => ipcRenderer.invoke('knowledge:delete'),
+  getStatus: () => ipcRenderer.invoke('knowledge:status'),
+  getStats: () => ipcRenderer.invoke('knowledge:stats'),
+  ragSearch: (question) => ipcRenderer.invoke('knowledge:rag-search', question),
+  deletePdf: (fileName) => ipcRenderer.invoke('knowledge:delete-pdf', fileName)
+};
