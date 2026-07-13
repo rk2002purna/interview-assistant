@@ -24,6 +24,17 @@ function detectPlatform(): 'windows' | 'mac' | 'other' {
   return 'other';
 }
 
+// ─── Detect mobile / tablet (app is desktop-only) ────────────────────────
+function detectMobile(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  // iPhone / iPod / Android phones & tablets / other mobile browsers
+  if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|Silk/i.test(ua)) return true;
+  // iPadOS 13+ reports as "Macintosh" but is touch-based
+  if (/Macintosh/i.test(ua) && typeof document !== 'undefined' && 'ontouchend' in document) return true;
+  return false;
+}
+
 // ─── Shared sub-components ──────────────────────────────────────────────
 function Step({ num, label }: { num: number; label: string }) {
   return (
@@ -52,13 +63,57 @@ function ReqItem({ label }: { label: string }) {
 export function DownloadContent({ compact = false }: { compact?: boolean }) {
   const [selectedChip, setSelectedChip] = useState<MacChip>('arm64');
   const [userPlatform, setUserPlatform] = useState<'windows' | 'mac' | 'other'>('other');
+  const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
     setUserPlatform(detectPlatform());
+    setIsMobile(detectMobile());
   }, []);
 
   const macDownloadUrl = selectedChip === 'arm64' ? DOWNLOAD_URLS.macArm : DOWNLOAD_URLS.macIntel;
   const macChipLabel = selectedChip === 'arm64' ? 'Apple Silicon (M1/M2/M3/M4)' : 'Intel (x64)';
+
+  // ─── Mobile / tablet: block download, show desktop-only notice ──────────
+  if (isMobile) {
+    return (
+      <div style={{ maxWidth: 520, margin: '0 auto', textAlign: 'center' }}>
+        <span className="section-label">Download</span>
+        <div style={{
+          marginTop: 20,
+          background: 'rgba(245,158,11,0.05)',
+          border: '1px solid rgba(245,158,11,0.2)',
+          borderRadius: 16, padding: '40px 28px',
+        }}>
+          <div style={{ fontSize: 44, marginBottom: 16 }}>🖥️</div>
+          <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#f1f5f9', marginBottom: 12 }}>
+            UpNod is a desktop app
+          </h2>
+          <p style={{ fontSize: '1rem', color: '#94a3b8', lineHeight: 1.7, marginBottom: 24 }}>
+            This software runs only on <strong style={{ color: '#e2e8f0' }}>Windows</strong> and{' '}
+            <strong style={{ color: '#e2e8f0' }}>macOS</strong>. It can’t be installed on phones or tablets.
+            Please open this page on your Windows PC or Mac to download.
+          </p>
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 20,
+            padding: '14px 24px', borderRadius: 12,
+            background: 'rgba(255,255,255,0.03)',
+            border: '1px solid rgba(255,255,255,0.08)',
+          }}>
+            <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, color: '#94a3b8', fontSize: 13 }}>
+              <span style={{ fontSize: 26 }}>🪟</span> Windows 10 / 11
+            </span>
+            <span style={{ width: 1, height: 32, background: 'rgba(255,255,255,0.1)' }} />
+            <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, color: '#94a3b8', fontSize: 13 }}>
+              <span style={{ fontSize: 26 }}>🍎</span> macOS 12+
+            </span>
+          </div>
+          <p style={{ fontSize: 13, color: '#64748b', marginTop: 24 }}>
+            💡 Tip: email yourself this link and open it on your computer.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>

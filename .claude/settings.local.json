@@ -14,7 +14,11 @@
       "Bash(npx tsc *)",
       "Bash(npx vite *)",
       "Bash(git commit -m 'Redesign download UI and integrate into landing page *)",
-      "Bash(git commit -m 'Detect user OS to show correct Recommended badge *)"
+      "Bash(git commit -m 'Detect user OS to show correct Recommended badge *)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(python3 -m pip --version)",
+      "Bash(cp /private/tmp/claude-501/-Users-wwzz-Downloads-proxyclawd/88833871-9d1c-410a-8425-a5a54e5377ef/scratchpad/build_sf_resume.py /c/Users/Admin/Downloads/build_sf_resume.py 2>/dev/null && echo \"copied via bash\" || echo \"cp failed\")",
+      "Bash(python3 build_sf_resume.py)"
     ]
   }
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Header from '../components/Header';
 import Footer from '../components/Footer';
@@ -370,7 +370,246 @@ const how: Record<string, React.CSSProperties> = {
 };
 
 /* ===== Demo Video ===== */
+// A chapter marks WHERE (in seconds) a section starts within the single merged video.
+type Chapter = { title: string; start: number };
+
+const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+
+function VideoPlayer({ src, poster, chapters }: { src: string; poster?: string; chapters: Chapter[] }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [buffered, setBuffered] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(1);
+  const [muted, setMuted] = useState(false);
+  const [showControls, setShowControls] = useState(true);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [showVolume, setShowVolume] = useState(false);
+  const [speed, setSpeed] = useState(1);
+  const [showSpeed, setShowSpeed] = useState(false);
+  const [hoverChapter, setHoverChapter] = useState<number | null>(null);
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const fmt = (s: number) => {
+    if (!isFinite(s)) return '0:00';
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, '0')}`;
+  };
+
+  // Compute each chapter's [start, end] window along the timeline.
+  const segments = chapters.map((ch, i) => ({
+    ...ch,
+    end: i < chapters.length - 1 ? chapters[i + 1]!.start : duration,
+  }));
+
+  const activeChapter = segments.reduce((acc, seg, i) => (currentTime >= seg.start ? i : acc), 0);
+
+  const resetHideTimer = () => {
+    setShowControls(true);
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+    if (playing) hideTimer.current = setTimeout(() => setShowControls(false), 3000);
+  };
+
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const onTime = () => {
+      setCurrentTime(v.currentTime);
+      if (v.buffered.length) setBuffered((v.buffered.end(v.buffered.length - 1) / v.duration) * 100);
+    };
+    const onMeta = () => setDuration(v.duration);
+    const onEnd = () => { setPlaying(false); setShowControls(true); };
+    v.addEventListener('timeupdate', onTime);
+    v.addEventListener('loadedmetadata', onMeta);
+    v.addEventListener('ended', onEnd);
+    return () => { v.removeEventListener('timeupdate', onTime); v.removeEventListener('loadedmetadata', onMeta); v.removeEventListener('ended', onEnd); };
+  }, []);
+
+  useEffect(() => {
+    const onFs = () => setFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', onFs);
+    return () => document.removeEventListener('fullscreenchange', onFs);
+  }, []);
+
+  const togglePlay = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.paused) { v.play(); setPlaying(true); } else { v.pause(); setPlaying(false); setShowControls(true); }
+    resetHideTimer();
+  };
+
+  const seekTo = (t: number) => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.currentTime = Math.max(0, Math.min(t, v.duration || t));
+  };
+
+  // Click anywhere within a segment to seek to that exact position.
+  const seekInSegment = (e: React.MouseEvent<HTMLDivElement>, seg: { start: number; end: number }) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const frac = (e.clientX - rect.left) / rect.width;
+    seekTo(seg.start + frac * (seg.end - seg.start));
+  };
+
+  const changeVolume = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = Number(e.target.value);
+    setVolume(val);
+    if (videoRef.current) videoRef.current.volume = val;
+    setMuted(val === 0);
+  };
+
+  const toggleMute = () => {
+    if (!videoRef.current) return;
+    const next = !muted;
+    setMuted(next);
+    videoRef.current.muted = next;
+  };
+
+  const changeSpeed = (s: number) => {
+    setSpeed(s);
+    if (videoRef.current) videoRef.current.playbackRate = s;
+    setShowSpeed(false);
+  };
+
+  const toggleFullscreen = () => {
+    if (!containerRef.current) return;
+    if (!document.fullscreenElement) containerRef.current.requestFullscreen();
+    else document.exitFullscreen();
+  };
+
+  const volIcon = muted || volume === 0 ? '🔇' : volume < 0.5 ? '🔉' : '🔊';
+
+  return (
+    <div style={demo.videoWrap}>
+      <div
+        ref={containerRef}
+        onMouseMove={resetHideTimer}
+        onMouseLeave={() => playing && setShowControls(false)}
+        style={demo.playerWrap}
+      >
+        <video
+          ref={videoRef}
+          src={src}
+          poster={poster}
+          onClick={togglePlay}
+          style={{ width: '100%', height: '100%', display: 'block', cursor: 'pointer', objectFit: 'contain', background: '#000' }}
+        />
+
+        {/* Big play button overlay when paused */}
+        {!playing && (
+          <div onClick={togglePlay} style={demo.bigPlay}>
+            <div style={demo.bigPlayCircle}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
+            </div>
+          </div>
+        )}
+
+        {/* Current chapter title badge */}
+        {chapters.length > 0 && (
+          <div style={{ ...demo.titleBadge, opacity: showControls ? 1 : 0 }}>
+            {chapters[activeChapter]?.title}
+          </div>
+        )}
+
+        {/* Controls bar */}
+        <div style={{ ...demo.controls, opacity: showControls ? 1 : 0, transition: 'opacity 0.3s' }}>
+          {/* Segmented progress bar (YouTube-style chapters) */}
+          <div style={demo.segmentBar}>
+            {(duration ? segments : [{ title: '', start: 0, end: duration }]).map((seg, i) => {
+              const segLen = seg.end - seg.start || 1;
+              const fill = Math.max(0, Math.min(1, (currentTime - seg.start) / segLen)) * 100;
+              const buf = Math.max(0, Math.min(1, ((buffered / 100) * duration - seg.start) / segLen)) * 100;
+              const isHover = hoverChapter === i;
+              return (
+                <div
+                  key={i}
+                  onClick={(e) => seekInSegment(e, seg)}
+                  onMouseEnter={() => setHoverChapter(i)}
+                  onMouseLeave={() => setHoverChapter(null)}
+                  style={{ ...demo.segment, flexGrow: segLen }}
+                  title={seg.title}
+                >
+                  <div style={{ ...demo.segTrack, height: isHover ? 6 : 4 }}>
+                    <div style={{ ...demo.segBuf, width: `${buf}%` }} />
+                    <div style={{ ...demo.segFill, width: `${fill}%` }} />
+                  </div>
+                  {/* Chapter tooltip on hover */}
+                  {isHover && seg.title && (
+                    <div style={demo.segTooltip}>{seg.title}</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <div style={demo.controlsRow}>
+            {/* Play/Pause */}
+            <button onClick={togglePlay} style={demo.ctrlBtn} title={playing ? 'Pause' : 'Play'}>
+              {playing
+                ? <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M6 19h4V5H6zm8-14v14h4V5z"/></svg>
+                : <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>}
+            </button>
+
+            {/* Volume */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}
+              onMouseEnter={() => setShowVolume(true)} onMouseLeave={() => setShowVolume(false)}>
+              <button onClick={toggleMute} style={demo.ctrlBtn} title="Mute/Unmute">{volIcon}</button>
+              {showVolume && (
+                <input type="range" min={0} max={1} step={0.05} value={muted ? 0 : volume}
+                  onChange={changeVolume} style={demo.volSlider} />
+              )}
+            </div>
+
+            {/* Time + current chapter name */}
+            <span style={demo.timeLabel}>{fmt(currentTime)} / {fmt(duration)}</span>
+            {chapters.length > 0 && (
+              <span style={demo.chapterNowLabel}>• {chapters[activeChapter]?.title}</span>
+            )}
+
+            <div style={{ flex: 1 }} />
+
+            {/* Playback speed */}
+            <div style={{ position: 'relative' }}>
+              <button onClick={() => setShowSpeed((s) => !s)} style={{ ...demo.ctrlBtn, fontSize: 13, fontWeight: 600, color: '#fff' }} title="Playback speed">
+                {speed}x
+              </button>
+              {showSpeed && (
+                <div style={demo.speedMenu}>
+                  {SPEEDS.map((s) => (
+                    <button key={s} onClick={() => changeSpeed(s)}
+                      style={{ ...demo.speedItem, ...(s === speed ? demo.speedItemActive : {}) }}>
+                      {s === 1 ? 'Normal' : `${s}x`}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Fullscreen */}
+            <button onClick={toggleFullscreen} style={demo.ctrlBtn} title="Fullscreen">
+              {fullscreen
+                ? <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M5 16h3v3h2v-5H5zm3-8H5v2h5V5H8zm6 11h2v-3h3v-2h-5zm2-11V5h-2v5h5V8z"/></svg>
+                : <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M7 14H5v5h5v-2H7zm-2-4h2V7h3V5H5zm12 7h-3v2h5v-5h-2zM14 5v2h3v3h2V5z"/></svg>}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DemoSection() {
+  // ⬇️ One merged video. `start` = seconds where each section begins.
+  // Update these timestamps to match your merged file.
+  const chapters: Chapter[] = [
+    { title: 'Installation on Windows', start: 0 },
+    { title: 'Installation on Mac', start: 57 },
+    { title: 'Getting Started', start: 172 },
+  ];
+
   return (
     <section className="section">
       <div className="container" style={{ textAlign: 'center' as const }}>
@@ -382,22 +621,11 @@ function DemoSection() {
           See all three modes — Manual, Passive, and Screen Analyzer — in a real interview scenario.
         </p>
 
-        <div style={demo.videoWrap}>
-          <iframe
-            width="800"
-            height="450"
-            src="https://www.youtube.com/embed/UCP7Stnyr2U"
-            title="How to Install UpNod App on Windows and Mac | Complete Setup Guide"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            referrerPolicy="strict-origin-when-cross-origin"
-            allowFullScreen
-            style={{
-              width: '100%',
-              height: '100%',
-              border: 'none',
-            }}
-          />
-        </div>
+        <VideoPlayer
+          src="/videos/setup-guide.mp4"
+          poster="/videos/setup-guide.jpg"
+          chapters={chapters}
+        />
       </div>
     </section>
   );
@@ -405,13 +633,107 @@ function DemoSection() {
 
 const demo: Record<string, React.CSSProperties> = {
   videoWrap: {
-    maxWidth: 800,
+    maxWidth: 860,
     margin: '0 auto',
     borderRadius: 16,
     overflow: 'hidden',
-    border: '1px solid rgba(255,255,255,0.06)',
-    background: 'rgba(0,0,0,0.4)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    background: '#000',
+    boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
+  },
+  playerWrap: {
+    position: 'relative',
+    width: '100%',
     aspectRatio: '16/9',
+    background: '#000',
+    userSelect: 'none',
+  },
+  titleBadge: {
+    position: 'absolute', top: 0, left: 0, right: 0,
+    padding: '14px 18px',
+    background: 'linear-gradient(rgba(0,0,0,0.7), transparent)',
+    color: '#fff', fontSize: 14, fontWeight: 600, textAlign: 'left',
+    transition: 'opacity 0.3s', pointerEvents: 'none',
+  },
+  bigPlay: {
+    position: 'absolute', inset: 0,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    cursor: 'pointer',
+  },
+  bigPlayCircle: {
+    width: 72, height: 72, borderRadius: '50%',
+    background: 'rgba(255,255,255,0.15)',
+    backdropFilter: 'blur(8px)',
+    border: '2px solid rgba(255,255,255,0.3)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    transition: 'background 0.2s',
+  },
+  controls: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    background: 'linear-gradient(transparent, rgba(0,0,0,0.85))',
+    padding: '32px 16px 12px',
+  },
+  segmentBar: {
+    display: 'flex', alignItems: 'center', gap: 3,
+    marginBottom: 10, height: 12,
+  },
+  segment: {
+    position: 'relative', flexBasis: 0, height: '100%',
+    display: 'flex', alignItems: 'center', cursor: 'pointer',
+  },
+  segTrack: {
+    position: 'relative', width: '100%', borderRadius: 3,
+    background: 'rgba(255,255,255,0.25)', overflow: 'hidden',
+    transition: 'height 0.1s',
+  },
+  segBuf: {
+    position: 'absolute', top: 0, left: 0, height: '100%',
+    background: 'rgba(255,255,255,0.4)', pointerEvents: 'none',
+  },
+  segFill: {
+    position: 'absolute', top: 0, left: 0, height: '100%',
+    background: '#6366f1', pointerEvents: 'none',
+  },
+  segTooltip: {
+    position: 'absolute', bottom: '160%', left: '50%',
+    transform: 'translateX(-50%)', whiteSpace: 'nowrap',
+    background: 'rgba(20,20,25,0.97)', color: '#fff',
+    padding: '5px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+    pointerEvents: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+  },
+  chapterNowLabel: {
+    color: 'rgba(255,255,255,0.85)', fontSize: 12, fontWeight: 600,
+    marginLeft: 8, whiteSpace: 'nowrap', overflow: 'hidden',
+    textOverflow: 'ellipsis', maxWidth: 200,
+  },
+  controlsRow: {
+    display: 'flex', alignItems: 'center', gap: 4,
+  },
+  ctrlBtn: {
+    background: 'none', border: 'none', cursor: 'pointer',
+    padding: '4px 6px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    opacity: 0.9, fontSize: 16,
+  },
+  timeLabel: {
+    color: 'rgba(255,255,255,0.75)', fontSize: 12, fontFamily: 'monospace', marginLeft: 4,
+  },
+  volSlider: {
+    width: 72, accentColor: '#6366f1', cursor: 'pointer',
+  },
+  speedMenu: {
+    position: 'absolute', bottom: '130%', right: 0,
+    background: 'rgba(20,20,25,0.97)', borderRadius: 8,
+    border: '1px solid rgba(255,255,255,0.1)',
+    padding: 4, display: 'flex', flexDirection: 'column',
+    minWidth: 96, boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+  },
+  speedItem: {
+    background: 'none', border: 'none', color: 'rgba(255,255,255,0.8)',
+    padding: '7px 12px', textAlign: 'left', cursor: 'pointer',
+    fontSize: 13, borderRadius: 6, whiteSpace: 'nowrap',
+  },
+  speedItemActive: {
+    background: 'rgba(99,102,241,0.25)', color: '#fff', fontWeight: 600,
   },
 };
 
