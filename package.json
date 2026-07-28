@@ -62,7 +62,11 @@
           ]
         }
       ],
-      "category": "public.app-category.productivity"
+      "category": "public.app-category.productivity",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "UpNod uses audio input for interview transcription and passive listening.",
+        "NSAudioCaptureUsageDescription": "UpNod captures system audio only while Passive mode is active so interviewer questions can be transcribed."
+      }
     },
     "dmg": {
       "contents": [

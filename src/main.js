@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, Menu, desktopCapturer, systemPreferences, screen, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu, desktopCapturer, session, systemPreferences, screen, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -160,7 +160,79 @@ function createSettingsWindow() {
   settingsWindow.on('closed', () => settingsWindow = null);
 }
 
+let displayMediaGrant = null;
+
+function isMainRendererUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'file:' && parsed.pathname.endsWith('/renderer/index.html');
+  } catch {
+    return false;
+  }
+}
+
+// Arm one short-lived, single-use capture request from the main app renderer.
+ipcMain.handle('prepare-display-media-capture', (event) => {
+  const frame = event.senderFrame;
+  const frameUrl = frame ? frame.url : event.sender.getURL();
+  if (!frame || !isMainRendererUrl(frameUrl)) return false;
+
+  displayMediaGrant = {
+    processId: frame.processId,
+    routingId: frame.routingId,
+    expiresAt: Date.now() + 10000
+  };
+  return true;
+});
+
+/**
+ * Grant an armed renderer getDisplayMedia request access to the primary display
+ * and its loopback audio. The renderer immediately stops the video track and
+ * keeps only audio; older platforms fall back to legacy/virtual-device capture.
+ */
+function configureDisplayMediaCapture() {
+  if (!session.defaultSession || typeof session.defaultSession.setDisplayMediaRequestHandler !== 'function') {
+    return;
+  }
+
+  session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
+    const frame = request && request.frame;
+    const grant = displayMediaGrant;
+    displayMediaGrant = null;
+    const grantMatches = grant &&
+      grant.expiresAt >= Date.now() &&
+      frame &&
+      isMainRendererUrl(frame.url) &&
+      frame.processId === grant.processId &&
+      frame.routingId === grant.routingId;
+
+    if (!grantMatches) {
+      callback({});
+      return;
+    }
+
+    try {
+      const sources = await desktopCapturer.getSources({
+        types: ['screen'],
+        thumbnailSize: { width: 0, height: 0 },
+        fetchWindowIcons: false
+      });
+      const primaryDisplayId = String(screen.getPrimaryDisplay().id);
+      const source = sources.find(item => String(item.display_id) === primaryDisplayId) || sources[0];
+      if (!source) {
+        callback({});
+        return;
+      }
+      callback({ video: source, audio: 'loopback' });
+    } catch {
+      callback({});
+    }
+  }, { useSystemPicker: false });
+}
+
 app.whenReady().then(() => {
+  configureDisplayMediaCapture();
+
   // Remove the default menu bar (File, Edit, View, etc.) from all windows
   Menu.setApplicationMenu(null);
 
@@ -417,19 +489,45 @@ ipcMain.handle('call-gemini-api', async (event, { model, messages, systemPrompt 
 });
 
 // Streaming AI handler - emits tokens to renderer as they arrive via backend AI Proxy
+const activeAiStreamControllers = new Map();
+
+function getAiStreamKey(sender, streamId) {
+  return sender.id + ':' + String(streamId || '');
+}
+
+ipcMain.on('cancel-ai-stream', (event, streamId) => {
+  const controller = activeAiStreamControllers.get(getAiStreamKey(event.sender, streamId));
+  if (controller && !controller.signal.aborted) controller.abort();
+});
+
 ipcMain.handle('call-ai-stream', async (event, { provider, model, messages, systemPrompt, streamId }) => {
   const sender = event.sender;
+  const streamKey = getAiStreamKey(sender, streamId);
+  let controller = null;
+  let timeout = null;
+  let timedOut = false;
 
   try {
+    if (!streamId) {
+      return { error: { code: 'invalid_stream_id', message: 'A stream identifier is required.' } };
+    }
+
     // Determine if this is a vision request (messages contain image content)
     const hasImages = messages.some(m =>
       Array.isArray(m.content) && m.content.some(p => p.type === 'image_url')
     );
     const endpoint = hasImages ? '/ai/vision' : '/ai/text';
 
-    // Use streaming mode to get the raw Response for SSE consumption
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60000);
+    // Keep one cancellable controller per renderer stream. A duplicate ID replaces
+    // and aborts its older request, while renderer-specific keys prevent cross-window cancellation.
+    controller = new AbortController();
+    const existingController = activeAiStreamControllers.get(streamKey);
+    if (existingController && !existingController.signal.aborted) existingController.abort();
+    activeAiStreamControllers.set(streamKey, controller);
+    timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, 60000);
 
     const result = await backendRequest({
       method: 'POST',
@@ -438,8 +536,6 @@ ipcMain.handle('call-ai-stream', async (event, { provider, model, messages, syst
       stream: true,
       signal: controller.signal
     });
-
-    clearTimeout(timeout);
 
     if (!result.ok) {
       return { error: { message: result.error ? result.error.message : 'Request failed' } };
@@ -453,6 +549,12 @@ ipcMain.handle('call-ai-stream', async (event, { provider, model, messages, syst
 
     try {
       while (true) {
+        if (controller.signal.aborted) {
+          const abortError = new Error('Request cancelled');
+          abortError.name = 'AbortError';
+          throw abortError;
+        }
+
         const { done, value } = await reader.read();
         if (done) break;
 
@@ -471,20 +573,21 @@ ipcMain.handle('call-ai-stream', async (event, { provider, model, messages, syst
             // Handle backend SSE format: { delta: "..." }
             if (json.delta) {
               fullText += json.delta;
-              sender.send('ai-stream-chunk', { streamId, delta: json.delta });
+              if (!sender.isDestroyed()) sender.send('ai-stream-chunk', { streamId, delta: json.delta });
             }
             // Also handle OpenAI-compatible format from backend
             else if (json.choices && json.choices[0] && json.choices[0].delta && json.choices[0].delta.content) {
               const content = json.choices[0].delta.content;
               fullText += content;
-              sender.send('ai-stream-chunk', { streamId, delta: content });
+              if (!sender.isDestroyed()) sender.send('ai-stream-chunk', { streamId, delta: content });
             }
             // Handle error in stream
             else if (json.error) {
               return { error: { message: json.error.message || 'Stream error' } };
             }
-          } catch {
-            // ignore parse errors on partial chunks
+          } catch (parseError) {
+            if (parseError && parseError.name === 'AbortError') throw parseError;
+            // Ignore malformed/partial SSE payloads.
           }
         }
       }
@@ -499,9 +602,19 @@ ipcMain.handle('call-ai-stream', async (event, { provider, model, messages, syst
     return { content: [{ text: fullText }] };
   } catch (e) {
     if (e.name === 'AbortError') {
-      return { error: { message: 'Request timed out' } };
+      return {
+        error: {
+          code: timedOut ? 'request_timeout' : 'request_cancelled',
+          message: timedOut ? 'Request timed out' : 'Request cancelled'
+        }
+      };
     }
     return { error: { message: 'Network error: ' + e.message } };
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    if (controller && activeAiStreamControllers.get(streamKey) === controller) {
+      activeAiStreamControllers.delete(streamKey);
+    }
   }
 });
 
@@ -564,17 +677,29 @@ ipcMain.handle('capture-screen-frame', async () => {
   }
 });
 
-ipcMain.handle('transcribe-audio', async (event, { audioData }) => {
-  try {
-    // Build multipart form data for the /ai/audio endpoint
-    const audioBuffer = Buffer.from(audioData, 'base64');
-    const { getClientId } = require('./auth/client-id');
+function inferAudioFileConfig(mimeType) {
+  const normalized = typeof mimeType === 'string' ? mimeType.toLowerCase() : 'audio/webm;codecs=opus';
+  if (normalized.startsWith('audio/ogg')) {
+    return { fileName: 'audio.ogg', contentType: 'audio/ogg' };
+  }
+  if (normalized.startsWith('audio/mp4')) {
+    return { fileName: 'audio.mp4', contentType: 'audio/mp4' };
+  }
+  return { fileName: 'audio.webm', contentType: 'audio/webm' };
+}
 
-    // Use native fetch with FormData (Node 22 supports this)
-    const { FormData, File } = require('node:buffer');
-    // Node 22 has global FormData and File via undici
+ipcMain.handle('transcribe-audio', async (event, { audioData, mimeType }) => {
+  try {
+    // Build multipart form data for the backend-managed /ai/audio endpoint.
+    const audioBuffer = Buffer.from(audioData, 'base64');
+    if (audioBuffer.length < 1024) {
+      return { error: { message: 'Audio too short or empty — please try again.' } };
+    }
+    const { getClientId } = require('./auth/client-id');
+    const { fileName, contentType } = inferAudioFileConfig(mimeType);
+
     const formData = new globalThis.FormData();
-    const file = new globalThis.File([audioBuffer], 'audio.webm', { type: 'audio/webm' });
+    const file = new globalThis.File([audioBuffer], fileName, { type: contentType });
     formData.append('file', file);
     formData.append('model', 'whisper-large-v3');
 
