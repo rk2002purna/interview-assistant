@@ -200,7 +200,7 @@
     </div>
     <div id="passive-control-row">
       <button id="passive-toggle-btn" onclick="togglePassiveListening()">&#9654; Start Passive</button>
-      <button id="passive-capture-btn" onclick="manualPassiveCapture()" style="display:none">🎯 Capture Now</button>
+      <button id="passive-capture-btn" onclick="manualPassiveCapture()" style="display:none">🎯 Start</button>
     </div>
   </div>
   <div id="screen-indicator" class="mode-indicator">
@@ -317,6 +317,8 @@ let passiveRecorderStopReason = 'idle', passiveRecorderMode = null, passiveCaptu
 let passiveMimeType = 'audio/webm';
 let passiveExplicitTranscriptionQueue = [];
 let passiveAnswerQueue = [], passiveAnswerProcessing = false;
+let passiveTranscriptionSequence = 0, passiveNextAnswerSequence = 1;
+let passiveOrderedTranscriptionResults = new Map();
 let screenCaptureInterval = null, screenLastText = '', screenProcessing = false, screenStitcherBuffer = '', screenStitcherTimer = null, screenProcessedQuestions = [], screenCaptureIntervalMs = 4000;
 const SILENCE_THRESHOLD_MS = 2500, MIN_AUDIO_SIZE = 500, SPEECH_VOLUME_THRESHOLD = 25;
 
@@ -681,8 +683,8 @@ function switchMode(mode) {
       setStatus('Starting passive system-audio capture...');
       startPassiveMode();
     } else {
-      setPassiveControlState('manual-ready');
-      setStatus('Manual passive mode - click Capture Now');
+      setStatus('Preparing system audio for Manual passive mode...');
+      preparePassiveManualStream();
     }
   } else if (mode === 'screen') {
     app.classList.add('screen-active');
@@ -902,7 +904,7 @@ function updatePassiveSubModeUi() {
   if (!passiveCaptureSource && !passiveProcessing) {
     info.textContent = autoMode
       ? 'Auto listens for interviewer questions from system audio.'
-      : 'Click Capture Now to record one question from system audio; click again to stop.';
+      : 'Click Start to record one question from system audio; click again to stop.';
   }
 }
 
@@ -923,15 +925,15 @@ function setPassiveControlState(state) {
     toggleBtn.textContent = '\u23F9 Stop Passive';
   } else if (state === 'manual-starting') {
     captureBtn.disabled = true;
-    captureBtn.textContent = 'Connecting...';
+    captureBtn.textContent = 'Preparing audio...';
   } else if (state === 'manual-recording') {
     captureBtn.classList.add('recording');
-    captureBtn.textContent = '\u23F9 Stop & Transcribe';
+    captureBtn.textContent = '\u23F9 Stop';
   } else if (state === 'manual-stopping') {
     captureBtn.disabled = true;
-    captureBtn.textContent = 'Stopping...';
+    captureBtn.textContent = 'Transcribing...';
   } else if (state === 'manual-ready') {
-    captureBtn.textContent = '\uD83C\uDFAF Capture Now';
+    captureBtn.textContent = '\u25B6 Start';
   } else {
     toggleBtn.innerHTML = '&#9654; Start Passive';
   }
@@ -955,7 +957,8 @@ function setPassiveSubMode(mode) {
     setStatus('Starting passive system-audio capture...');
     startPassiveMode();
   } else {
-    setStatus('Manual passive mode - click Capture Now');
+    setStatus('Preparing system audio for Manual passive mode...');
+    preparePassiveManualStream();
   }
 }
 
@@ -981,6 +984,13 @@ function isPassiveCaptureCurrent(generation, expectedSubMode) {
     currentMode === 'passive' &&
     passiveSubMode === expectedSubMode &&
     sessionActive;
+}
+
+function isPassiveStreamUsable(stream) {
+  if (!stream || typeof stream.getAudioTracks !== 'function') return false;
+  return stream.getAudioTracks().some(function(track) {
+    return track.readyState === 'live';
+  });
 }
 
 function stopPassiveTracks(stream) {
@@ -1014,6 +1024,7 @@ async function acquirePreferredPassiveStream(generation, expectedSubMode) {
       throw new Error('Display media capture is unavailable.');
     }
     var displayCaptureArmed = await ipcRenderer.invoke('prepare-display-media-capture');
+    if (!isPassiveCaptureCurrent(generation, expectedSubMode)) return null;
     if (!displayCaptureArmed) {
       throw new Error('Display media capture was not authorized for this window.');
     }
@@ -1210,7 +1221,7 @@ function applyPassiveSourceUi(source, manualCapture) {
   }
 
   if (manualCapture) {
-    setStatus(passiveCaptureSource + ' - recording; click Stop & Transcribe');
+    setStatus(passiveCaptureSource + ' - recording; click Stop');
   } else {
     setPassiveListeningStatus();
   }
@@ -1226,7 +1237,8 @@ function setPassiveListeningStatus() {
 
 async function startPassiveMode() {
   if (currentMode !== 'passive' || passiveSubMode !== 'auto' || !sessionActive) return false;
-  if (passiveRecorder || (passiveStream && !passiveProcessing)) return true;
+  if (passiveProcessing) return false;
+  if (passiveRecorder || passiveStream) return true;
 
   // Recording starts share the current Passive/session lifecycle. Only teardown
   // advances this generation, so earlier transcription/answer jobs stay valid.
@@ -1446,6 +1458,79 @@ function monitorPassiveAudio(generation, recorder) {
   }, 50);
 }
 
+async function preparePassiveManualStream() {
+  if (currentMode !== 'passive' || passiveSubMode !== 'manual' || !sessionActive) return false;
+  if (passiveManualRecording) return true;
+
+  if (isPassiveStreamUsable(passiveStream) && !passiveProcessing) {
+    setPassiveControlState('manual-ready');
+    setStatus('Manual passive ready - click Start');
+    return true;
+  }
+  if (passiveProcessing) return false;
+
+  var generation = passiveCaptureGeneration;
+  var pendingStream = { getTracks: function() { return []; }, pendingPassiveCapture: true };
+  passiveProcessing = true;
+  passiveStream = pendingStream;
+  passiveManualDiscard = false;
+  setPassiveControlState('manual-starting');
+  document.getElementById('passive-info').textContent = 'Preparing system audio once for instant Start/Stop capture...';
+  setStatus('Preparing system audio...');
+
+  try {
+    var source = await acquirePreferredPassiveStream(generation, 'manual');
+    if (!source || !isPassiveCaptureCurrent(generation, 'manual') || passiveStream !== pendingStream) {
+      if (source) stopPassiveTracks(source.stream);
+      return false;
+    }
+
+    var preparedStream = source.stream;
+    passiveStream = preparedStream;
+    passiveProcessing = false;
+    passiveCaptureSource = '';
+    applyPassiveSourceUi(source, false);
+
+    preparedStream.getAudioTracks().forEach(function(track) {
+      track.addEventListener('ended', function() {
+        if (!isPassiveCaptureCurrent(generation, 'manual') || passiveStream !== preparedStream) return;
+        passiveStream = null;
+        passiveCaptureSource = '';
+        if (passiveManualTimer) { clearTimeout(passiveManualTimer); passiveManualTimer = null; }
+        if (passiveManualRecording && passiveRecorder && passiveRecorderMode === 'manual') {
+          passiveManualDiscard = true;
+          passiveManualRecording = false;
+          passiveRecorderStopReason = 'manual-error';
+          if (passiveRecorder.state !== 'inactive') {
+            try { passiveRecorder.stop(); } catch (e) {}
+          }
+        }
+        document.getElementById('status-dot').classList.remove('passive');
+        setPassiveControlState('manual-ready');
+        document.getElementById('passive-info').textContent = 'Audio source disconnected. Click Start to reconnect.';
+        setStatus('Manual audio source disconnected');
+      }, { once: true });
+    });
+
+    setPassiveControlState('manual-ready');
+    document.getElementById('passive-info').textContent = passiveCaptureSource + ' ready. Click Start when the interviewer begins.';
+    setStatus('Manual passive ready - click Start');
+    return true;
+  } catch (e) {
+    if (isPassiveCaptureCurrent(generation, 'manual')) {
+      if (passiveStream === pendingStream) passiveStream = null;
+      passiveCaptureSource = '';
+      setPassiveControlState('manual-ready');
+      document.getElementById('passive-info').textContent = 'Audio preparation failed. Click Start to retry.';
+      setStatus('Passive capture error: ' + e.message);
+    }
+    return false;
+  } finally {
+    if (passiveStream === pendingStream) passiveStream = null;
+    if (passiveCaptureGeneration === generation && !passiveManualRecording) passiveProcessing = false;
+  }
+}
+
 async function manualPassiveCapture() {
   if (currentMode !== 'passive' || passiveSubMode !== 'manual') return;
   if (!sessionActive) {
@@ -1453,40 +1538,35 @@ async function manualPassiveCapture() {
     return;
   }
 
-  // The second click must complete the active capture instead of returning early.
+  // Match dev's Start/Stop interaction: the second click ends this recorder
+  // immediately, while the prepared system-audio stream stays alive.
   if (passiveManualRecording && passiveRecorder && passiveRecorderMode === 'manual') {
     finishPassiveManualCapture(false);
     return;
   }
-  if (passiveProcessing) return;
+  if (passiveProcessing || passiveRecorder) return;
+
+  if (!isPassiveStreamUsable(passiveStream)) {
+    var prepared = await preparePassiveManualStream();
+    if (!prepared || !isPassiveStreamUsable(passiveStream)) return;
+  }
+  if (currentMode !== 'passive' || passiveSubMode !== 'manual' || !sessionActive) return;
 
   var generation = passiveCaptureGeneration;
-  var pendingStream = { getTracks: function() { return []; }, pendingPassiveCapture: true };
-  passiveProcessing = true;
-  passiveManualDiscard = false;
-  passiveStream = pendingStream;
-  setPassiveControlState('manual-starting');
-  document.getElementById('passive-info').textContent = 'Connecting to system audio for this capture...';
-  setStatus('Connecting to system audio...');
+  var stream = passiveStream;
+  var recorder = null;
+  var manualChunks = [];
+  var manualMimeType = passiveMimeType || 'audio/webm';
+  var manualErrorMessage = '';
 
   try {
-    var source = await acquirePreferredPassiveStream(generation, 'manual');
-    if (!source || !isPassiveCaptureCurrent(generation, 'manual') || passiveStream !== pendingStream) {
-      if (source) stopPassiveTracks(source.stream);
-      return;
-    }
-
-    var stream = source.stream;
-    passiveStream = stream;
-    passiveProcessing = false;
-    var recorder = createPassiveMediaRecorder(stream);
-    var manualChunks = [];
-    var manualMimeType = recorder.mimeType || passiveMimeType || 'audio/webm';
-    var manualErrorMessage = '';
+    recorder = createPassiveMediaRecorder(stream);
+    manualMimeType = recorder.mimeType || passiveMimeType || 'audio/webm';
     passiveChunks = manualChunks;
     passiveRecorder = recorder;
     passiveRecorderMode = 'manual';
     passiveRecorderStopReason = 'recording';
+    passiveManualDiscard = false;
 
     function failManualRecorder(message) {
       if (recorder !== passiveRecorder) return;
@@ -1510,53 +1590,49 @@ async function manualPassiveCapture() {
       failManualRecorder((error && (error.message || error.name)) || 'MediaRecorder failed.');
     };
 
-    stream.getAudioTracks().forEach(function(track) {
-      track.addEventListener('ended', function() {
-        if (passiveManualRecording && recorder === passiveRecorder) {
-          failManualRecorder('The selected audio source disconnected.');
-        }
-      }, { once: true });
-    });
-
     recorder.onstop = function() {
       var stopReason = passiveRecorderStopReason;
       var shouldTranscribe = stopReason === 'manual-complete' &&
         !passiveManualDiscard &&
         isPassiveCaptureCurrent(generation, 'manual');
+      var streamStillReady = passiveStream === stream && isPassiveStreamUsable(stream);
 
       if (passiveManualTimer) { clearTimeout(passiveManualTimer); passiveManualTimer = null; }
       if (passiveRecorder === recorder) passiveRecorder = null;
-      if (passiveStream === stream) passiveStream = null;
       if (passiveChunks === manualChunks) passiveChunks = [];
       passiveRecorderMode = null;
       passiveManualRecording = false;
       passiveProcessing = false;
-      stopPassiveTracks(stream);
       document.getElementById('status-dot').classList.remove('passive');
 
       if (isPassiveCaptureCurrent(generation, 'manual')) {
-        passiveCaptureSource = '';
         passiveManualDiscard = false;
         setPassiveControlState('manual-ready');
-        document.getElementById('passive-info').textContent = 'Click Capture Now to record one question from system audio; click again to stop.';
+        document.getElementById('passive-info').textContent = streamStillReady
+          ? passiveCaptureSource + ' ready. Click Start when the interviewer begins.'
+          : 'Audio source disconnected. Click Start to reconnect.';
       }
 
       if (manualErrorMessage && isPassiveCaptureCurrent(generation, 'manual')) {
-        document.getElementById('passive-info').textContent = 'The previous capture failed. Click Capture Now to try again.';
         setStatus('Manual capture error: ' + manualErrorMessage);
       } else if (shouldTranscribe && manualChunks.length > 0) {
         var manualBlob = new Blob(manualChunks, { type: manualMimeType });
         if (manualBlob.size > 0) processPassiveUtterance(manualBlob, manualMimeType, true, generation);
       } else if (isPassiveCaptureCurrent(generation, 'manual')) {
-        setStatus('Manual passive mode - click Capture Now');
+        setStatus(streamStillReady
+          ? 'Manual passive ready - click Start'
+          : 'Manual audio source disconnected');
       }
     };
 
-    recorder.start(250);
+    // Everything below is synchronous; the browser repaints Start -> Stop as
+    // soon as this click handler returns, without another device acquisition.
     passiveManualRecording = true;
     document.getElementById('status-dot').classList.add('passive');
     setPassiveControlState('manual-recording');
-    applyPassiveSourceUi(source, true);
+    document.getElementById('passive-info').textContent = passiveCaptureSource + ' recording. Click Stop when the question ends.';
+    setStatus('Recording interviewer question...');
+    recorder.start(250);
 
     passiveManualTimer = setTimeout(function() {
       passiveManualTimer = null;
@@ -1568,39 +1644,31 @@ async function manualPassiveCapture() {
       }
     }, 30000);
   } catch (e) {
-    if (isPassiveCaptureCurrent(generation, 'manual')) {
-      // A failed new recording must not invalidate earlier transcription/answer
-      // jobs from the same Passive lifecycle. Clean up only this acquisition.
-      if (passiveManualTimer) { clearTimeout(passiveManualTimer); passiveManualTimer = null; }
-      if (typeof recorder !== 'undefined' && recorder) {
-        recorder.ondataavailable = null;
-        recorder.onerror = null;
-        recorder.onstop = null;
-        if (recorder.state !== 'inactive') {
-          try { recorder.stop(); } catch (stopError) {}
-        }
-        if (passiveRecorder === recorder) passiveRecorder = null;
+    if (passiveManualTimer) { clearTimeout(passiveManualTimer); passiveManualTimer = null; }
+    if (recorder) {
+      recorder.ondataavailable = null;
+      recorder.onerror = null;
+      recorder.onstop = null;
+      if (recorder.state !== 'inactive') {
+        try { recorder.stop(); } catch (stopError) {}
       }
-      var failedStream = typeof stream !== 'undefined' && stream
-        ? stream
-        : (typeof source !== 'undefined' && source ? source.stream : null);
-      stopPassiveTracks(failedStream);
-      if (passiveStream === pendingStream || passiveStream === failedStream) passiveStream = null;
-      passiveChunks = [];
-      passiveRecorderMode = null;
-      passiveRecorderStopReason = 'discard';
-      passiveManualRecording = false;
-      passiveManualDiscard = false;
-      passiveProcessing = false;
-      passiveCaptureSource = '';
-      document.getElementById('status-dot').classList.remove('passive');
-      setPassiveControlState('manual-ready');
-      document.getElementById('passive-info').textContent = 'System audio capture could not be started. Click Capture Now to try again.';
-      setStatus('Passive capture error: ' + e.message);
+      if (passiveRecorder === recorder) passiveRecorder = null;
     }
-  } finally {
-    if (passiveStream === pendingStream) passiveStream = null;
-    if (passiveCaptureGeneration === generation && !passiveManualRecording) passiveProcessing = false;
+    if (passiveChunks === manualChunks) passiveChunks = [];
+    passiveRecorderMode = null;
+    passiveRecorderStopReason = 'discard';
+    passiveManualRecording = false;
+    passiveManualDiscard = false;
+    passiveProcessing = false;
+    document.getElementById('status-dot').classList.remove('passive');
+
+    if (isPassiveCaptureCurrent(generation, 'manual')) {
+      setPassiveControlState('manual-ready');
+      document.getElementById('passive-info').textContent = isPassiveStreamUsable(stream)
+        ? passiveCaptureSource + ' ready. Click Start to try again.'
+        : 'Audio source disconnected. Click Start to reconnect.';
+      setStatus('Manual capture error: ' + e.message);
+    }
   }
 }
 
@@ -1722,22 +1790,51 @@ async function drainPassiveAnswerQueue() {
       }, 10000);
 
       if (passiveSubMode === 'auto') setPassiveListeningStatus();
-      else setStatus('Manual passive mode - click Capture Now');
+      else setStatus('Manual passive mode - click Start');
     }
   } finally {
     passiveAnswerProcessing = false;
   }
 }
 
-async function processPassiveUtterance(blob, mimeType, acceptExplicitCapture, captureGeneration) {
+function settlePassiveTranscription(sequence, captureGeneration, transcript, explicitCapture) {
+  if (!isPassiveTranscriptionCurrent(captureGeneration) || sequence < passiveNextAnswerSequence) return;
+
+  passiveOrderedTranscriptionResults.set(sequence, {
+    transcript: transcript || '',
+    captureGeneration: captureGeneration,
+    explicitCapture: !!explicitCapture
+  });
+
+  // Transcription may finish out of order, but questions must enter the answer
+  // queue in the same order their audio captures completed.
+  while (passiveOrderedTranscriptionResults.has(passiveNextAnswerSequence)) {
+    var orderedResult = passiveOrderedTranscriptionResults.get(passiveNextAnswerSequence);
+    passiveOrderedTranscriptionResults.delete(passiveNextAnswerSequence);
+    passiveNextAnswerSequence++;
+    if (orderedResult.transcript) {
+      enqueuePassiveAnswer(
+        orderedResult.transcript,
+        orderedResult.captureGeneration,
+        orderedResult.explicitCapture
+      );
+    }
+  }
+}
+
+async function processPassiveUtterance(blob, mimeType, acceptExplicitCapture, captureGeneration, captureSequence) {
   var jobGeneration = typeof captureGeneration === 'number'
     ? captureGeneration
     : passiveCaptureGeneration;
+  var jobSequence = typeof captureSequence === 'number'
+    ? captureSequence
+    : ++passiveTranscriptionSequence;
   if (!isPassiveTranscriptionCurrent(jobGeneration)) return;
 
   if (passiveActiveTranscriptions >= 2) {
     if (acceptExplicitCapture) {
       if (passiveExplicitTranscriptionQueue.length >= 10) {
+        settlePassiveTranscription(jobSequence, jobGeneration, '', true);
         setStatus('Transcription queue is full. Please wait and capture again.');
         return;
       }
@@ -1745,13 +1842,17 @@ async function processPassiveUtterance(blob, mimeType, acceptExplicitCapture, ca
         blob: blob,
         mimeType: mimeType,
         acceptExplicitCapture: true,
-        captureGeneration: jobGeneration
+        captureGeneration: jobGeneration,
+        captureSequence: jobSequence
       });
       setStatus('Manual capture queued for transcription (' + passiveExplicitTranscriptionQueue.length + ' waiting)');
+    } else {
+      settlePassiveTranscription(jobSequence, jobGeneration, '', false);
     }
     return;
   }
   passiveActiveTranscriptions++;
+  var transcriptionSettled = false;
   setStatus('Transcribing... (passive capture can continue)');
 
   try {
@@ -1780,7 +1881,8 @@ async function processPassiveUtterance(blob, mimeType, acceptExplicitCapture, ca
       }
 
       if (!isPassiveTranscriptionCurrent(jobGeneration)) return;
-      enqueuePassiveAnswer(transcript, jobGeneration, acceptExplicitCapture);
+      transcriptionSettled = true;
+      settlePassiveTranscription(jobSequence, jobGeneration, transcript, acceptExplicitCapture);
     } else if (currentMode === 'passive' && sessionActive) {
       setStatus('Listening... (no speech recognized)');
     }
@@ -1789,6 +1891,9 @@ async function processPassiveUtterance(blob, mimeType, acceptExplicitCapture, ca
       setStatus('Transcription error: ' + e.message);
     }
   } finally {
+    if (!transcriptionSettled && isPassiveTranscriptionCurrent(jobGeneration)) {
+      settlePassiveTranscription(jobSequence, jobGeneration, '', acceptExplicitCapture);
+    }
     passiveActiveTranscriptions = Math.max(0, passiveActiveTranscriptions - 1);
     var queuedCapture = null;
     while (passiveExplicitTranscriptionQueue.length > 0 && !queuedCapture) {
@@ -1801,7 +1906,8 @@ async function processPassiveUtterance(blob, mimeType, acceptExplicitCapture, ca
           queuedCapture.blob,
           queuedCapture.mimeType,
           queuedCapture.acceptExplicitCapture,
-          queuedCapture.captureGeneration
+          queuedCapture.captureGeneration,
+          queuedCapture.captureSequence
         );
       }, 0);
     }
@@ -1813,6 +1919,8 @@ function stopPassiveMode(discardPartial) {
   passiveCaptureGeneration++;
   passiveExplicitTranscriptionQueue = [];
   passiveAnswerQueue = [];
+  passiveOrderedTranscriptionResults.clear();
+  passiveNextAnswerSequence = passiveTranscriptionSequence + 1;
   passiveProcessing = false;
   passiveManualDiscard = true;
 
