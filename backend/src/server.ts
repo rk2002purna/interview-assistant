@@ -3,7 +3,6 @@ import { serve } from '@hono/node-server';
 import { Pool } from 'pg';
 import { buildApp } from './app.js';
 import { loadModeConfig } from './config/mode.js';
-import { StorageQuotaGate, createPgDatabaseSampler } from './storage/quota-gate.js';
 import { buildResendEmailSenders } from './auth/resend-email-sender.js';
 import { createRazorpayClient } from './billing/razorpay-client.js';
 
@@ -19,11 +18,6 @@ const { mode, databaseUrl } = loadModeConfig();
 const pool = new Pool({
   connectionString: databaseUrl,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined,
-});
-
-// Storage quota gate for blob persistence (R15.3)
-const storageGate = new StorageQuotaGate({
-  sampler: createPgDatabaseSampler(pool),
 });
 
 // Resend email senders (free tier: 100 emails/day). When RESEND_API_KEY is
@@ -55,7 +49,6 @@ const app = buildApp({
   ...(razorpayClient ? { razorpayClient } : {}),
   ...(razorpayKeyId ? { razorpayKeyId } : {}),
   ...(process.env.RAZORPAY_WEBHOOK_SECRET ? { razorpayWebhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET } : {}),
-  storageGate,
   ...(emailSenders ? { sendVerificationEmail: emailSenders.sendVerificationEmail } : {}),
   ...(emailSenders ? { sendPasswordResetEmail: emailSenders.sendPasswordResetEmail } : {}),
 });

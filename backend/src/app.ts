@@ -23,7 +23,6 @@ import { buildAiTextRouter } from './ai/text-route.js';
 import { buildAudioRouter } from './ai/audio-routes.js';
 import type { TranscribeFn } from './ai/audio-routes.js';
 import { buildVisionRouter } from './ai/vision-routes.js';
-import type { StorageQuotaGate } from './storage/quota-gate.js';
 import type { VerificationEmailSender } from './auth/register-routes.js';
 import type { PasswordResetEmailSender } from './auth/password-reset-routes.js';
 
@@ -48,8 +47,6 @@ export interface BuildAppDeps {
   readonly razorpayKeyId?: string;
   /** Razorpay webhook secret for signature verification. */
   readonly razorpayWebhookSecret?: string;
-  /** Storage quota gate for blob persistence (R15.3). */
-  readonly storageGate?: StorageQuotaGate;
   /** Whisper transcription function (DI for testability). */
   readonly transcribe?: TranscribeFn;
   /** Verification email sender (Resend, stub, or test double). */
@@ -241,16 +238,13 @@ export function buildApp(deps: BuildAppDeps = {}): Hono {
     });
     app.route('/', visionRouter);
 
-    // AI Audio route (R7.1, R7.4, R7.5, R15.2: POST /ai/audio).
-    if (deps.storageGate) {
-      const audioRouter = buildAudioRouter({
-        pool: deps.pool,
-        storageGate: deps.storageGate,
-        ...(deps.now ? { now: deps.now } : {}),
-        ...(deps.transcribe ? { transcribe: deps.transcribe } : {}),
-      });
-      app.route('/', audioRouter);
-    }
+    // AI Audio route (R7.1, R7.4, R7.5: POST /ai/audio).
+    const audioRouter = buildAudioRouter({
+      pool: deps.pool,
+      ...(deps.now ? { now: deps.now } : {}),
+      ...(deps.transcribe ? { transcribe: deps.transcribe } : {}),
+    });
+    app.route('/', audioRouter);
   }
 
   return app;

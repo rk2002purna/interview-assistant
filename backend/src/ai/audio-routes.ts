@@ -2,23 +2,23 @@
  * POST /ai/audio — Audio transcription endpoint.
  *
  * Accepts multipart/form-data with a single audio file, validates size
- * (≤ 25 MB) and duration (≤ 5 min), offloads the blob to object storage
- * with a 7-day TTL, then forwards to the Whisper provider with a
- * 120-second timeout.
+ * (≤ 25 MB) and duration (≤ 5 min), keeps the uploaded bytes only in
+ * request memory, then forwards them to Groq Whisper with a 120-second
+ * timeout.
  *
  * Flow:
  *   1. Authenticate via JWT (R7.2)
  *   2. Verify active interview session (R7.3)
- *   3. Check idempotency cache (R7.6, R7.7)
- *   4. Validate file size ≤ 25 MB and duration ≤ 5 min (R7.1)
- *   5. Check storage quota gate (R15.3)
- *   6. Persist blob to object storage with 7-day TTL (R15.2)
+ *   3. Parse multipart form data
+ *   4. Validate file size ≤ 25 MB (R7.1)
+ *   5. Validate duration ≤ 5 min (R7.1)
+ *   6. Check idempotency cache (R7.6, R7.7)
  *   7. Resolve Whisper provider key (R4.5)
- *   8. Forward to Whisper with 120-second timeout (R7.5)
+ *   8. Forward the in-memory audio to Whisper (R7.5)
  *   9. Record usage row (R9.1)
  *   10. Cache response for idempotency (R7.6)
  *
- * Requirements: 7.1, 7.4, 7.5, 15.2.
+ * Requirements: 7.1, 7.4, 7.5.
  */
 
 import { Hono } from 'hono';
@@ -33,9 +33,6 @@ import {
   insertIdempotencyCache,
   IdempotencyKeyConflictError,
 } from './idempotency.js';
-import { storeAudioBlob } from '../storage/blob-store.js';
-import type { StorageQuotaGate } from '../storage/quota-gate.js';
-import { StorageQuotaExceededError } from '../storage/quota-gate.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -44,8 +41,6 @@ import { StorageQuotaExceededError } from '../storage/quota-gate.js';
 export interface AudioRouterDeps {
   /** Postgres pool for queries. */
   readonly pool: Pool;
-  /** Storage quota gate for blob persistence (R15.3). */
-  readonly storageGate: StorageQuotaGate;
   /** Clock injection for tests. Defaults to wall clock. */
   readonly now?: () => Date;
   /**
@@ -137,6 +132,36 @@ async function defaultTranscribe(
     `--${boundary}${CRLF}` +
     `Content-Disposition: form-data; name="model"${CRLF}${CRLF}` +
     `${model}${CRLF}`,
+  ));
+
+  // Force English transcription. Without an explicit `language`, Whisper
+  // auto-detects the spoken language and may transcribe (or translate) the
+  // audio into another language such as Hindi. That non-English transcript
+  // then flows into the LLM, which replies in the same language. Pinning
+  // the language to English keeps the whole pipeline English-only.
+  parts.push(Buffer.from(
+    `--${boundary}${CRLF}` +
+    `Content-Disposition: form-data; name="language"${CRLF}${CRLF}` +
+    `en${CRLF}`,
+  ));
+
+  // Deterministic decoding + JSON response for stable, repeatable output.
+  parts.push(Buffer.from(
+    `--${boundary}${CRLF}` +
+    `Content-Disposition: form-data; name="response_format"${CRLF}${CRLF}` +
+    `json${CRLF}`,
+  ));
+  parts.push(Buffer.from(
+    `--${boundary}${CRLF}` +
+    `Content-Disposition: form-data; name="temperature"${CRLF}${CRLF}` +
+    `0${CRLF}`,
+  ));
+
+  // Bias the decoder toward an English technical-interview context.
+  parts.push(Buffer.from(
+    `--${boundary}${CRLF}` +
+    `Content-Disposition: form-data; name="prompt"${CRLF}${CRLF}` +
+    `Technical interview question about software engineering, coding, or behavioral topics.${CRLF}`,
   ));
 
   // Closing boundary
@@ -344,41 +369,12 @@ export function buildAudioRouter(deps: AudioRouterDeps): Hono {
       }
     }
 
-    // 7. Check storage quota gate (R15.3)
-    try {
-      await deps.storageGate.assertCanWriteBlob();
-    } catch (err) {
-      if (err instanceof StorageQuotaExceededError) {
-        return c.json(
-          {
-            error: {
-              code: 'storage_quota_exceeded',
-              message: 'storage quota exceeded, cannot persist audio blob',
-              details: {
-                observed_bytes: err.observedBytes,
-                threshold_bytes: err.thresholdBytes,
-              },
-            },
-          },
-          507,
-        );
-      }
-      throw err;
-    }
-
-    // 8. Persist blob to object storage with 7-day TTL (R15.2)
+    // 7. Resolve provider key for Whisper (uses 'groq' provider).
+    // The audio buffer remains request-scoped and is sent directly upstream;
+    // no database or object-storage write is performed.
     const mimeType = file.type || 'audio/webm';
     const fileName = file.name || 'audio.webm';
 
-    await storeAudioBlob(deps.pool, {
-      userId,
-      sessionId: activeSession.id,
-      fileName,
-      mimeType,
-      data: fileBuffer,
-    });
-
-    // 9. Resolve provider key for Whisper (uses 'groq' provider)
     let apiKey: string;
     try {
       apiKey = await resolveProviderKey(deps.pool, 'groq');
@@ -402,7 +398,7 @@ export function buildAudioRouter(deps: AudioRouterDeps): Hono {
       throw err;
     }
 
-    // 10. Forward to Whisper with 120-second timeout (R7.5)
+    // 8. Forward to Whisper with 120-second timeout (R7.5)
     let transcribedText: string;
     let upstreamStatus: number | null = null;
 
@@ -454,7 +450,7 @@ export function buildAudioRouter(deps: AudioRouterDeps): Hono {
       clearTimeout(timeout);
     }
 
-    // 11. Record successful usage
+    // 9. Record successful usage
     await recordUsage(deps.pool, {
       userId,
       sessionId: activeSession.id,
@@ -467,7 +463,7 @@ export function buildAudioRouter(deps: AudioRouterDeps): Hono {
 
     const responseBody = { text: transcribedText };
 
-    // 12. Cache response for idempotency (R7.6)
+    // 10. Cache response for idempotency (R7.6)
     if (idempotencyKey && requestHash) {
       try {
         await insertIdempotencyCache(
