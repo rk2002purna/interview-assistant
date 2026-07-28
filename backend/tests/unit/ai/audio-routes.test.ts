@@ -6,7 +6,6 @@
  *   - Active session check (no session → 402)
  *   - File validation (missing file → 400, too large → 400, empty → 400)
  *   - Duration validation (> 5 min → 400)
- *   - Storage quota gate (exceeded → 507)
  *   - Provider key unavailable → 503
  *   - Upstream timeout → 502
  *   - Upstream error → 502
@@ -18,7 +17,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { buildAudioRouter } from '../../../src/ai/audio-routes.js';
 import type { TranscribeFn } from '../../../src/ai/audio-routes.js';
-import { StorageQuotaGate, StorageQuotaExceededError } from '../../../src/storage/quota-gate.js';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -60,20 +58,6 @@ vi.mock('../../../src/ai/idempotency.js', () => ({
   },
 }));
 
-// Mock blob store
-vi.mock('../../../src/storage/blob-store.js', () => ({
-  storeAudioBlob: vi.fn(async () => ({
-    id: 'blob-id-123',
-    userId: 'user-1',
-    sessionId: 'session-1',
-    fileName: 'audio.webm',
-    mimeType: 'audio/webm',
-    sizeBytes: 1024,
-    createdAt: new Date(),
-    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-  })),
-}));
-
 import { verifyAccess } from '../../../src/auth/jwt.js';
 import { resolveProviderKey, ProviderKeyUnavailableError } from '../../../src/ai/keys.js';
 import { lookupIdempotencyCache, IdempotencyKeyConflictError } from '../../../src/ai/idempotency.js';
@@ -107,18 +91,6 @@ function createMockPool(hasActiveSession = true) {
   });
 
   return { query: mockQuery, connect: vi.fn() } as any;
-}
-
-function createMockStorageGate(shouldReject = false): StorageQuotaGate {
-  return {
-    assertCanWriteBlob: vi.fn(async () => {
-      if (shouldReject) {
-        throw new StorageQuotaExceededError(500 * 1024 * 1024, 450 * 1024 * 1024);
-      }
-    }),
-    invalidate: vi.fn(),
-    peek: vi.fn(),
-  } as any;
 }
 
 function createMockTranscribe(result = 'Hello world'): TranscribeFn {
@@ -168,8 +140,7 @@ describe('POST /ai/audio', () => {
   describe('authentication', () => {
     it('returns 401 when Authorization header is missing', async () => {
       const pool = createMockPool();
-      const gate = createMockStorageGate();
-      const router = buildAudioRouter({ pool, storageGate: gate });
+      const router = buildAudioRouter({ pool });
 
       const formData = createAudioFormData();
       const res = await makeRequest(router, formData);
@@ -183,8 +154,7 @@ describe('POST /ai/audio', () => {
       (verifyAccess as any).mockRejectedValue(new Error('invalid token'));
 
       const pool = createMockPool();
-      const gate = createMockStorageGate();
-      const router = buildAudioRouter({ pool, storageGate: gate });
+      const router = buildAudioRouter({ pool });
 
       const formData = createAudioFormData();
       const res = await makeRequest(router, formData, {
@@ -198,8 +168,7 @@ describe('POST /ai/audio', () => {
   describe('active session check', () => {
     it('returns 402 when no active session exists', async () => {
       const pool = createMockPool(false);
-      const gate = createMockStorageGate();
-      const router = buildAudioRouter({ pool, storageGate: gate });
+      const router = buildAudioRouter({ pool });
 
       const formData = createAudioFormData();
       const res = await makeRequest(router, formData, {
@@ -213,11 +182,9 @@ describe('POST /ai/audio', () => {
 
     it('returns 402 when session has expired', async () => {
       const pool = createMockPool(true);
-      const gate = createMockStorageGate();
       // Set now to after the session expires
       const router = buildAudioRouter({
         pool,
-        storageGate: gate,
         now: () => new Date('2024-01-01T02:00:00Z'),
       });
 
@@ -235,10 +202,8 @@ describe('POST /ai/audio', () => {
   describe('file validation', () => {
     it('returns 400 when no file is provided', async () => {
       const pool = createMockPool();
-      const gate = createMockStorageGate();
       const router = buildAudioRouter({
         pool,
-        storageGate: gate,
         now: () => new Date('2024-01-01T00:30:00Z'),
       });
 
@@ -255,10 +220,8 @@ describe('POST /ai/audio', () => {
 
     it('returns 400 when file exceeds 25 MB', async () => {
       const pool = createMockPool();
-      const gate = createMockStorageGate();
       const router = buildAudioRouter({
         pool,
-        storageGate: gate,
         now: () => new Date('2024-01-01T00:30:00Z'),
       });
 
@@ -277,10 +240,8 @@ describe('POST /ai/audio', () => {
 
     it('returns 400 when file is empty', async () => {
       const pool = createMockPool();
-      const gate = createMockStorageGate();
       const router = buildAudioRouter({
         pool,
-        storageGate: gate,
         now: () => new Date('2024-01-01T00:30:00Z'),
       });
 
@@ -298,10 +259,8 @@ describe('POST /ai/audio', () => {
   describe('duration validation', () => {
     it('returns 400 when duration exceeds 5 minutes', async () => {
       const pool = createMockPool();
-      const gate = createMockStorageGate();
       const router = buildAudioRouter({
         pool,
-        storageGate: gate,
         now: () => new Date('2024-01-01T00:30:00Z'),
       });
 
@@ -324,11 +283,9 @@ describe('POST /ai/audio', () => {
 
     it('accepts audio at exactly 5 minutes', async () => {
       const pool = createMockPool();
-      const gate = createMockStorageGate();
       const transcribe = createMockTranscribe('transcribed text');
       const router = buildAudioRouter({
         pool,
-        storageGate: gate,
         transcribe,
         now: () => new Date('2024-01-01T00:30:00Z'),
       });
@@ -348,27 +305,6 @@ describe('POST /ai/audio', () => {
     });
   });
 
-  describe('storage quota gate', () => {
-    it('returns 507 when storage quota is exceeded', async () => {
-      const pool = createMockPool();
-      const gate = createMockStorageGate(true);
-      const router = buildAudioRouter({
-        pool,
-        storageGate: gate,
-        now: () => new Date('2024-01-01T00:30:00Z'),
-      });
-
-      const formData = createAudioFormData();
-      const res = await makeRequest(router, formData, {
-        Authorization: 'Bearer valid-token',
-      });
-
-      expect(res.status).toBe(507);
-      const body = await res.json() as any;
-      expect(body.error.code).toBe('storage_quota_exceeded');
-    });
-  });
-
   describe('provider key resolution', () => {
     it('returns 503 when provider key is unavailable', async () => {
       (resolveProviderKey as any).mockRejectedValue(
@@ -376,10 +312,8 @@ describe('POST /ai/audio', () => {
       );
 
       const pool = createMockPool();
-      const gate = createMockStorageGate();
       const router = buildAudioRouter({
         pool,
-        storageGate: gate,
         now: () => new Date('2024-01-01T00:30:00Z'),
       });
 
@@ -404,10 +338,8 @@ describe('POST /ai/audio', () => {
       });
 
       const pool = createMockPool();
-      const gate = createMockStorageGate();
       const router = buildAudioRouter({
         pool,
-        storageGate: gate,
         transcribe,
         now: () => new Date('2024-01-01T00:30:00Z'),
       });
@@ -429,10 +361,8 @@ describe('POST /ai/audio', () => {
       });
 
       const pool = createMockPool();
-      const gate = createMockStorageGate();
       const router = buildAudioRouter({
         pool,
-        storageGate: gate,
         transcribe,
         now: () => new Date('2024-01-01T00:30:00Z'),
       });
@@ -451,10 +381,8 @@ describe('POST /ai/audio', () => {
       const transcribe = createMockTranscribe('Hello, this is a test transcription.');
 
       const pool = createMockPool();
-      const gate = createMockStorageGate();
       const router = buildAudioRouter({
         pool,
-        storageGate: gate,
         transcribe,
         now: () => new Date('2024-01-01T00:30:00Z'),
       });
@@ -473,10 +401,8 @@ describe('POST /ai/audio', () => {
       const transcribe = createMockTranscribe('text');
 
       const pool = createMockPool();
-      const gate = createMockStorageGate();
       const router = buildAudioRouter({
         pool,
-        storageGate: gate,
         transcribe,
         now: () => new Date('2024-01-01T00:30:00Z'),
       });
@@ -506,10 +432,8 @@ describe('POST /ai/audio', () => {
       const transcribe = createMockTranscribe('text');
 
       const pool = createMockPool();
-      const gate = createMockStorageGate();
       const router = buildAudioRouter({
         pool,
-        storageGate: gate,
         transcribe,
         now: () => new Date('2024-01-01T00:30:00Z'),
       });
@@ -539,10 +463,8 @@ describe('POST /ai/audio', () => {
     it('records a usage row on successful transcription', async () => {
       const transcribe = createMockTranscribe('text');
       const pool = createMockPool();
-      const gate = createMockStorageGate();
       const router = buildAudioRouter({
         pool,
-        storageGate: gate,
         transcribe,
         now: () => new Date('2024-01-01T00:30:00Z'),
       });
@@ -567,10 +489,8 @@ describe('POST /ai/audio', () => {
       });
 
       const pool = createMockPool();
-      const gate = createMockStorageGate();
       const router = buildAudioRouter({
         pool,
-        storageGate: gate,
         transcribe,
         now: () => new Date('2024-01-01T00:30:00Z'),
       });
@@ -596,10 +516,8 @@ describe('POST /ai/audio', () => {
       });
 
       const pool = createMockPool();
-      const gate = createMockStorageGate();
       const router = buildAudioRouter({
         pool,
-        storageGate: gate,
         now: () => new Date('2024-01-01T00:30:00Z'),
       });
 
@@ -620,10 +538,8 @@ describe('POST /ai/audio', () => {
       );
 
       const pool = createMockPool();
-      const gate = createMockStorageGate();
       const router = buildAudioRouter({
         pool,
-        storageGate: gate,
         now: () => new Date('2024-01-01T00:30:00Z'),
       });
 

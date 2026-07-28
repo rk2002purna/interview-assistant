@@ -6,7 +6,6 @@ import { fileURLToPath } from 'node:url';
 import { Pool } from 'pg';
 import { buildApp } from './app.js';
 import { loadModeConfig } from './config/mode.js';
-import { StorageQuotaGate, createPgDatabaseSampler } from './storage/quota-gate.js';
 import { buildResendEmailSenders } from './auth/resend-email-sender.js';
 import { createRazorpayClient } from './billing/razorpay-client.js';
 
@@ -82,11 +81,6 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined,
 });
 
-// Storage quota gate for blob persistence (R15.3)
-const storageGate = new StorageQuotaGate({
-  sampler: createPgDatabaseSampler(pool),
-});
-
 // Resend email senders (free tier: 100 emails/day). When RESEND_API_KEY is
 // not set, the auth routes fall back to logging stubs — registration and
 // password reset still work, but no emails are delivered.
@@ -117,7 +111,6 @@ const app = buildApp({
   ...(razorpayKeyId ? { razorpayKeyId } : {}),
   ...(razorpayKeySecret ? { razorpayKeySecret } : {}),
   ...(process.env.RAZORPAY_WEBHOOK_SECRET ? { razorpayWebhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET } : {}),
-  storageGate,
   ...(emailSenders ? { sendVerificationEmail: emailSenders.sendVerificationEmail } : {}),
   ...(emailSenders ? { sendPasswordResetEmail: emailSenders.sendPasswordResetEmail } : {}),
 });
