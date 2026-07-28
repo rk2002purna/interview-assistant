@@ -907,6 +907,17 @@ ipcMain.handle('entitlement:get', async () => {
   }
 });
 
+// --- Wallet IPC handler (per-minute billing balance) ---
+ipcMain.handle('wallet:get', async () => {
+  try {
+    const result = await backendRequest({ method: 'GET', path: '/me/wallet' });
+    if (!result.ok) return { error: result.error };
+    return result.data;
+  } catch (e) {
+    return { error: { code: 'network_error', message: e.message } };
+  }
+});
+
 // --- Session IPC handlers ---
 ipcMain.handle('session:start', async () => {
   return await sessionController.start();
@@ -922,6 +933,24 @@ ipcMain.handle('session:extend', async () => {
 
 ipcMain.handle('session:getActive', async () => {
   return await sessionController.getActive();
+});
+
+// Per-minute billing heartbeat. Charges any newly-elapsed minutes; if the
+// wallet is exhausted the backend ends the session and returns active:false.
+ipcMain.handle('session:heartbeat', async (event, sessionId) => {
+  try {
+    if (!sessionId) {
+      return { error: { code: 'invalid_session', message: 'missing session id' } };
+    }
+    const result = await backendRequest({
+      method: 'POST',
+      path: `/sessions/${encodeURIComponent(sessionId)}/heartbeat`,
+    });
+    if (!result.ok) return { error: result.error };
+    return result.data;
+  } catch (e) {
+    return { error: { code: 'network_error', message: e.message } };
+  }
 });
 
 // --- Purchase IPC handlers ---

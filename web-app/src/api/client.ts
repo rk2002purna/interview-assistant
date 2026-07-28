@@ -282,3 +282,119 @@ export async function listPacks(): Promise<any[]> {
     return [];
   }
 }
+
+/** Request a password reset email. Always resolves ok (server hides whether the email exists). */
+export async function requestPasswordReset(
+  email: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await fetch(`${API_BASE_URL}/auth/password-reset/request`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'Network error. Please try again.' };
+  }
+}
+
+/** Confirm a password reset with the emailed token and a new password. */
+export async function confirmPasswordReset(
+  token: string,
+  newPassword: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const resp = await fetch(`${API_BASE_URL}/auth/password-reset/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, new_password: newPassword }),
+    });
+    if (!resp.ok) {
+      const err = (await resp.json().catch(() => null)) as { error?: ApiError } | null;
+      return { ok: false, error: err?.error?.message ?? 'Could not reset password. The link may have expired.' };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'Network error. Please try again.' };
+  }
+}
+
+/** Wallet balance for the authenticated user. */
+export interface WalletInfo {
+  balance_paise: number;
+  rate_per_minute_paise: number;
+  estimated_minutes_remaining: number;
+}
+
+export async function getWallet(): Promise<WalletInfo | null> {
+  try {
+    return await apiRequest<WalletInfo>('/me/wallet');
+  } catch {
+    return null;
+  }
+}
+
+/** A single wallet top-up record. */
+export interface TopupItem {
+  id: string;
+  amount_paise: number;
+  status: string;
+  razorpay_order_id: string;
+  razorpay_payment_id: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export async function listTopups(): Promise<TopupItem[]> {
+  try {
+    const r = await apiRequest<{ topups: TopupItem[] }>('/me/topups');
+    return r.topups ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** A Razorpay top-up order created by the backend for wallet recharge. */
+export interface TopupOrder {
+  topup_id: string;
+  order_id: string;
+  key_id: string;
+  amount: number; // paise
+  currency: string;
+  checkout_url: string;
+}
+
+/**
+ * Create a Razorpay order for a wallet top-up of `amountPaise`. The backend
+ * persists a pending wallet_topups row; the wallet is credited by the Razorpay
+ * webhook once payment is captured. Throws ApiClientError on failure.
+ */
+export async function createWalletTopup(amountPaise: number): Promise<TopupOrder> {
+  return apiRequest<TopupOrder>('/wallet/topup/checkout', {
+    method: 'POST',
+    body: { amount_paise: amountPaise },
+  });
+}
+
+/** Result of verifying a Razorpay payment signature. */
+export interface VerifyPaymentResult {
+  verified: boolean;
+  balance_paise: number;
+}
+
+/**
+ * Verify a completed Razorpay Standard Checkout payment. The backend checks the
+ * HMAC-SHA256 signature and, if valid, credits the wallet (idempotent with the
+ * webhook). Throws ApiClientError on a signature mismatch or missing fields.
+ */
+export async function verifyPayment(params: {
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
+}): Promise<VerifyPaymentResult> {
+  return apiRequest<VerifyPaymentResult>('/payments/verify', {
+    method: 'POST',
+    body: params,
+  });
+}

@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Pool } from 'pg';
 import { z } from 'zod';
 import { JwtError, verifyAccess } from '../auth/jwt.js';
-import { appendLedgerEntry, LedgerError } from '../entitlement/ledger.js';
+import { appendWalletEntry, getWalletBalancePaise, WalletError } from '../wallet/ledger.js';
 import { writeAudit } from '../log/audit.js';
 
 /**
@@ -54,22 +54,23 @@ const roleBodySchema = z
   .strict();
 
 /**
- * Validation schema for POST /admin/users/:id/entitlement-adjust.
+ * Validation schema for POST /admin/users/:id/wallet-adjust.
  *
- * - session_delta: integer in [-1000, 1000], excluding 0
+ * - amount_paise: integer in [-10_000_000, 10_000_000] (±Rs 100,000), excluding 0
+ *                 (positive credits the wallet, negative debits it)
  * - note: non-empty string of 1–500 characters
  */
-const entitlementAdjustBodySchema = z
+const walletAdjustBodySchema = z
   .object({
-    session_delta: z
+    amount_paise: z
       .number({
-        required_error: 'session_delta is required',
-        invalid_type_error: 'session_delta must be a number',
+        required_error: 'amount_paise is required',
+        invalid_type_error: 'amount_paise must be a number',
       })
-      .int('session_delta must be an integer')
-      .min(-1000, 'session_delta must be >= -1000')
-      .max(1000, 'session_delta must be <= 1000')
-      .refine((v) => v !== 0, { message: 'session_delta must not be 0' }),
+      .int('amount_paise must be an integer')
+      .min(-10_000_000, 'amount_paise must be >= -10000000')
+      .max(10_000_000, 'amount_paise must be <= 10000000')
+      .refine((v) => v !== 0, { message: 'amount_paise must not be 0' }),
     note: z
       .string({
         required_error: 'note is required',
@@ -292,7 +293,8 @@ export function buildAdminUsersRouter(deps: AdminUsersRouterDeps): Hono {
     const sql = `
       SELECT u.id, u.email, u.role, u.email_verified_at, u.created_at,
              COALESCE(e.resulting_session_count, 0) AS session_count,
-             COALESCE(e.resulting_lifetime_flag, false) AS lifetime_flag
+             COALESCE(e.resulting_lifetime_flag, false) AS lifetime_flag,
+             COALESCE(w.resulting_balance_paise, 0) AS wallet_balance_paise
         FROM users u
         LEFT JOIN LATERAL (
           SELECT resulting_session_count, resulting_lifetime_flag
@@ -301,6 +303,13 @@ export function buildAdminUsersRouter(deps: AdminUsersRouterDeps): Hono {
            ORDER BY ts DESC, id DESC
            LIMIT 1
         ) e ON true
+        LEFT JOIN LATERAL (
+          SELECT resulting_balance_paise
+            FROM wallet_ledger
+           WHERE user_id = u.id
+           ORDER BY ts DESC, id DESC
+           LIMIT 1
+        ) w ON true
         ${whereClause}
        ORDER BY u.created_at DESC, u.id DESC
        LIMIT $${paramIndex}
@@ -315,6 +324,7 @@ export function buildAdminUsersRouter(deps: AdminUsersRouterDeps): Hono {
       created_at: Date | string;
       session_count: number | string;
       lifetime_flag: boolean;
+      wallet_balance_paise: number | string;
     }>(sql, params);
 
     const rows = result.rows;
@@ -329,6 +339,7 @@ export function buildAdminUsersRouter(deps: AdminUsersRouterDeps): Hono {
       created_at: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
       session_count: Number(row.session_count),
       lifetime_flag: row.lifetime_flag === true,
+      wallet_balance_paise: Number(row.wallet_balance_paise),
     }));
 
     const nextCursor = hasMore ? items[items.length - 1]!.id : null;
@@ -446,7 +457,50 @@ export function buildAdminUsersRouter(deps: AdminUsersRouterDeps): Hono {
       [targetUserId],
     );
 
-    // Current entitlement: from the latest ledger row
+    // Current wallet balance (canonical: latest wallet_ledger row).
+    const walletBalancePaise = await getWalletBalancePaise(deps.pool, targetUserId);
+
+    // 50 most recent wallet ledger entries.
+    const walletLedgerResult = await deps.pool.query<{
+      id: string;
+      ts: Date | string;
+      amount_paise: number | string;
+      reason: string;
+      razorpay_payment_id: string | null;
+      interview_session_id: string | null;
+      acting_admin_id: string | null;
+      resulting_balance_paise: number | string;
+      note: string | null;
+    }>(
+      `SELECT id, ts, amount_paise, reason, razorpay_payment_id,
+              interview_session_id, acting_admin_id, resulting_balance_paise, note
+         FROM wallet_ledger
+        WHERE user_id = $1
+        ORDER BY ts DESC, id DESC
+        LIMIT 50`,
+      [targetUserId],
+    );
+
+    // 50 most recent wallet top-ups.
+    const topupsResult = await deps.pool.query<{
+      id: string;
+      amount_paise: number | string;
+      status: string;
+      razorpay_order_id: string;
+      razorpay_payment_id: string | null;
+      created_at: Date | string;
+      completed_at: Date | string | null;
+    }>(
+      `SELECT id, amount_paise, status, razorpay_order_id,
+              razorpay_payment_id, created_at, completed_at
+         FROM wallet_topups
+        WHERE user_id = $1
+        ORDER BY created_at DESC
+        LIMIT 50`,
+      [targetUserId],
+    );
+
+    // Current entitlement: from the latest ledger row (legacy; retained for history)
     const latestLedger = ledgerResult.rows[0];
     const currentEntitlement = latestLedger
       ? {
@@ -465,6 +519,7 @@ export function buildAdminUsersRouter(deps: AdminUsersRouterDeps): Hono {
         created_at: user.created_at instanceof Date ? user.created_at.toISOString() : user.created_at,
       },
       entitlement: currentEntitlement,
+      wallet: { balance_paise: walletBalancePaise },
       purchases: purchasesResult.rows.map((p) => ({
         id: p.id,
         pack_slug: p.pack_slug,
@@ -497,6 +552,26 @@ export function buildAdminUsersRouter(deps: AdminUsersRouterDeps): Hono {
         resulting_session_count: Number(l.resulting_session_count),
         resulting_lifetime_flag: l.resulting_lifetime_flag === true,
         note: l.note,
+      })),
+      wallet_ledger: walletLedgerResult.rows.map((w) => ({
+        id: w.id,
+        ts: w.ts instanceof Date ? w.ts.toISOString() : w.ts,
+        amount_paise: Number(w.amount_paise),
+        reason: w.reason,
+        razorpay_payment_id: w.razorpay_payment_id,
+        interview_session_id: w.interview_session_id,
+        acting_admin_id: w.acting_admin_id,
+        resulting_balance_paise: Number(w.resulting_balance_paise),
+        note: w.note,
+      })),
+      topups: topupsResult.rows.map((t) => ({
+        id: t.id,
+        amount_paise: Number(t.amount_paise),
+        status: t.status,
+        razorpay_order_id: t.razorpay_order_id,
+        razorpay_payment_id: t.razorpay_payment_id,
+        created_at: t.created_at instanceof Date ? t.created_at.toISOString() : t.created_at,
+        completed_at: t.completed_at instanceof Date ? t.completed_at.toISOString() : t.completed_at,
       })),
     };
 
@@ -614,15 +689,13 @@ export function buildAdminUsersRouter(deps: AdminUsersRouterDeps): Hono {
   });
 
   // -------------------------------------------------------------------------
-  // POST /admin/users/:id/entitlement-adjust
+  // POST /admin/users/:id/wallet-adjust
   //
-  // Manual session grant/revoke by an Admin. Validates session_delta ∈
-  // [-1000, 1000] \ {0} and a non-empty reason note of 1–500 chars.
-  // Single transaction: ledger insert + audit insert.
-  //
-  // Validates: Requirements 6.5, 11.3, 11.4, 11.5.
+  // Manual wallet credit/debit by an Admin. amount_paise ∈ [-10_000_000,
+  // 10_000_000] \ {0} (positive credits, negative debits) with a required
+  // 1–500 char note. Single transaction: wallet_ledger insert + audit insert.
   // -------------------------------------------------------------------------
-  router.post('/admin/users/:id/entitlement-adjust', async (c) => {
+  router.post('/admin/users/:id/wallet-adjust', async (c) => {
     // Inline admin auth gate (same pattern as PATCH /admin/users/:id/role).
     const auth = await authenticateAdmin(c.req.header('Authorization'));
     if ('errorBody' in auth) {
@@ -655,7 +728,7 @@ export function buildAdminUsersRouter(deps: AdminUsersRouterDeps): Hono {
       );
     }
 
-    const parsed = entitlementAdjustBodySchema.safeParse(raw);
+    const parsed = walletAdjustBodySchema.safeParse(raw);
     if (!parsed.success) {
       const firstIssue = parsed.error.issues[0];
       return c.json(
@@ -669,9 +742,9 @@ export function buildAdminUsersRouter(deps: AdminUsersRouterDeps): Hono {
       );
     }
 
-    const { session_delta, note } = parsed.data;
+    const { amount_paise, note } = parsed.data;
 
-    // Single transaction: verify user exists, ledger insert, audit insert.
+    // Single transaction: verify user exists, wallet insert, audit insert.
     const client = await deps.pool.connect();
     try {
       await client.query('BEGIN');
@@ -690,12 +763,11 @@ export function buildAdminUsersRouter(deps: AdminUsersRouterDeps): Hono {
         );
       }
 
-      // Append ledger entry with reason 'admin_adjustment'.
-      const ledgerResult = await appendLedgerEntry(client, {
+      // Append wallet ledger entry (admin_credit for positive, admin_debit for negative).
+      const walletResult = await appendWalletEntry(client, {
         userId: targetUserId,
-        sessionDelta: session_delta,
-        lifetimeFlagSet: 'unchanged',
-        reason: 'admin_adjustment',
+        amountPaise: amount_paise,
+        reason: amount_paise > 0 ? 'admin_credit' : 'admin_debit',
         actingAdminId: auth.sub,
         note,
       });
@@ -704,13 +776,12 @@ export function buildAdminUsersRouter(deps: AdminUsersRouterDeps): Hono {
       await writeAudit(client, {
         actor: { userId: auth.sub },
         target: { userId: targetUserId, resource: `user:${targetUserId}` },
-        eventType: 'entitlement_adjustment',
+        eventType: 'wallet_adjustment',
         outcome: 'success',
         metadata: {
-          session_delta,
+          amount_paise,
           note,
-          resulting_session_count: ledgerResult.resultingSessionCount,
-          resulting_lifetime_flag: ledgerResult.resultingLifetimeFlag,
+          resulting_balance_paise: walletResult.resultingBalancePaise,
         },
       });
 
@@ -718,8 +789,7 @@ export function buildAdminUsersRouter(deps: AdminUsersRouterDeps): Hono {
 
       return c.json({
         ok: true,
-        resulting_session_count: ledgerResult.resultingSessionCount,
-        resulting_lifetime_flag: ledgerResult.resultingLifetimeFlag,
+        resulting_balance_paise: walletResult.resultingBalancePaise,
       });
     } catch (err) {
       try {
@@ -728,14 +798,13 @@ export function buildAdminUsersRouter(deps: AdminUsersRouterDeps): Hono {
         // Ignore rollback errors; surface the original below.
       }
 
-      // If the ledger rejected due to insufficient balance, surface as 400.
-      if (err instanceof LedgerError && err.code === 'no_sessions_remaining') {
+      // If the wallet rejected the debit due to insufficient balance, surface as 400.
+      if (err instanceof WalletError && err.code === 'insufficient_balance') {
         return c.json(
           {
             error: {
-              code: 'no_sessions_remaining',
-              message:
-                'adjustment would cause negative session count for a non-lifetime user',
+              code: 'insufficient_balance',
+              message: 'debit would make the wallet balance negative',
             },
           },
           400,

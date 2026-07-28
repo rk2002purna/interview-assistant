@@ -51,13 +51,29 @@ interface LedgerEntry {
   note: string | null;
 }
 
+interface Wallet {
+  balance_paise: number;
+}
+
 interface UserDetailResponse {
   user: UserInfo;
   entitlement: Entitlement;
+  wallet: Wallet;
   purchases: Purchase[];
   sessions: Session[];
   ledger: LedgerEntry[];
 }
+
+/** Format a paise integer as an INR amount string, e.g. 5000 -> "₹50.00". */
+function formatPaise(paise: number): string {
+  return '₹' + (paise / 100).toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+/** Rs 5 per minute — mirror of the backend RATE_PER_MINUTE_PAISE. */
+const RATE_PER_MINUTE_PAISE = 500;
 
 export default function UserDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -66,10 +82,9 @@ export default function UserDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showAdjustModal, setShowAdjustModal] = useState(false);
-  const [showLifetimeModal, setShowLifetimeModal] = useState(false);
   const [activeTab, setActiveTab] = useState<
     'purchases' | 'sessions' | 'ledger'
-  >('ledger');
+  >('sessions');
 
   const fetchUser = useCallback(async () => {
     if (!id) return;
@@ -110,7 +125,9 @@ export default function UserDetailPage() {
     );
   }
 
-  const { user, entitlement, purchases, sessions, ledger } = data;
+  const { user, wallet, purchases, sessions, ledger } = data;
+  const balancePaise = wallet?.balance_paise ?? 0;
+  const estimatedMinutes = Math.floor(balancePaise / RATE_PER_MINUTE_PAISE);
 
   return (
     <div style={styles.container}>
@@ -133,30 +150,19 @@ export default function UserDetailPage() {
           </div>
         </div>
 
-        {/* Entitlement Card */}
+        {/* Wallet Card */}
         <div style={styles.entitlementCard}>
-          <h3 style={styles.sectionTitle}>Current Entitlement</h3>
+          <h3 style={styles.sectionTitle}>Wallet Balance</h3>
           <div style={styles.entitlementRow}>
-            {entitlement.lifetime_flag ? (
-              <span style={styles.badgeLifetime}>♾️ Lifetime Access</span>
-            ) : (
-              <span style={styles.badgeSessions}>
-                {entitlement.session_count} session
-                {entitlement.session_count !== 1 ? 's' : ''} remaining
-              </span>
-            )}
+            <span style={styles.badgeSessions}>
+              {formatPaise(balancePaise)} · ~{estimatedMinutes} min @ ₹5/min
+            </span>
             <div style={styles.entitlementActions}>
               <button
                 onClick={() => setShowAdjustModal(true)}
                 style={styles.btnPrimary}
               >
-                Grant / Revoke Sessions
-              </button>
-              <button
-                onClick={() => setShowLifetimeModal(true)}
-                style={styles.btnSecondary}
-              >
-                Grant Lifetime
+                Credit / Debit Wallet
               </button>
             </div>
           </div>
@@ -198,16 +204,10 @@ export default function UserDetailPage() {
 
       {/* Modals */}
       {showAdjustModal && (
-        <AdjustSessionsModal
+        <WalletAdjustModal
           userId={user.id}
+          balancePaise={balancePaise}
           onClose={() => setShowAdjustModal(false)}
-          onSuccess={fetchUser}
-        />
-      )}
-      {showLifetimeModal && (
-        <LifetimeModal
-          userId={user.id}
-          onClose={() => setShowLifetimeModal(false)}
           onSuccess={fetchUser}
         />
       )}
@@ -375,16 +375,19 @@ function PurchasesTable({ purchases }: { purchases: Purchase[] }) {
   );
 }
 
-function AdjustSessionsModal({
+function WalletAdjustModal({
   userId,
+  balancePaise,
   onClose,
   onSuccess,
 }: {
   userId: string;
+  balancePaise: number;
   onClose: () => void;
   onSuccess: () => void;
 }) {
-  const [delta, setDelta] = useState('');
+  const [amount, setAmount] = useState('');
+  const [direction, setDirection] = useState<'credit' | 'debit'>('credit');
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -393,9 +396,18 @@ function AdjustSessionsModal({
     e.preventDefault();
     setError('');
 
-    const deltaNum = parseInt(delta, 10);
-    if (isNaN(deltaNum) || deltaNum === 0 || deltaNum < -1000 || deltaNum > 1000) {
-      setError('Session delta must be an integer between -1000 and 1000, excluding 0.');
+    const rupees = Number(amount);
+    if (!Number.isFinite(rupees) || rupees <= 0) {
+      setError('Enter a positive amount in rupees.');
+      return;
+    }
+    const magnitudePaise = Math.round(rupees * 100);
+    if (magnitudePaise < 1 || magnitudePaise > 10_000_000) {
+      setError('Amount must be between ₹0.01 and ₹100,000.');
+      return;
+    }
+    if (direction === 'debit' && magnitudePaise > balancePaise) {
+      setError(`Cannot debit more than the current balance (${formatPaise(balancePaise)}).`);
       return;
     }
     if (!note.trim() || note.trim().length > 500) {
@@ -403,11 +415,13 @@ function AdjustSessionsModal({
       return;
     }
 
+    const amountPaise = direction === 'credit' ? magnitudePaise : -magnitudePaise;
+
     setSubmitting(true);
     try {
-      await apiRequest(`/admin/users/${userId}/entitlement-adjust`, {
+      await apiRequest(`/admin/users/${userId}/wallet-adjust`, {
         method: 'POST',
-        body: { session_delta: deltaNum, note: note.trim() },
+        body: { amount_paise: amountPaise, note: note.trim() },
       });
       onSuccess();
       onClose();
@@ -415,7 +429,7 @@ function AdjustSessionsModal({
       if (err instanceof ApiClientError) {
         setError(err.message);
       } else {
-        setError('Failed to adjust entitlement.');
+        setError('Failed to adjust wallet.');
       }
     } finally {
       setSubmitting(false);
@@ -425,34 +439,56 @@ function AdjustSessionsModal({
   return (
     <div style={styles.modalOverlay} onClick={onClose}>
       <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-        <h2 style={styles.modalTitle}>Grant / Revoke Sessions</h2>
+        <h2 style={styles.modalTitle}>Credit / Debit Wallet</h2>
+        <p style={styles.helpText}>Current balance: {formatPaise(balancePaise)}</p>
         <form onSubmit={handleSubmit}>
           {error && <div role="alert" style={styles.errorBox}>{error}</div>}
           <div style={styles.formField}>
-            <label htmlFor="adjust-delta" style={styles.formLabel}>
-              Session Delta
+            <label style={styles.formLabel}>Action</label>
+            <div style={{ display: 'flex', gap: '1rem' }}>
+              <label style={styles.checkboxLabel}>
+                <input
+                  type="radio"
+                  name="direction"
+                  checked={direction === 'credit'}
+                  onChange={() => setDirection('credit')}
+                />
+                {' '}Credit (add)
+              </label>
+              <label style={styles.checkboxLabel}>
+                <input
+                  type="radio"
+                  name="direction"
+                  checked={direction === 'debit'}
+                  onChange={() => setDirection('debit')}
+                />
+                {' '}Debit (remove)
+              </label>
+            </div>
+          </div>
+          <div style={styles.formField}>
+            <label htmlFor="wallet-amount" style={styles.formLabel}>
+              Amount (₹)
             </label>
             <input
-              id="adjust-delta"
+              id="wallet-amount"
               type="number"
-              min="-1000"
-              max="1000"
-              value={delta}
-              onChange={(e) => setDelta(e.target.value)}
-              placeholder="e.g. 5 to grant, -3 to revoke"
+              min="0"
+              step="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="e.g. 50"
               required
               style={styles.formInput}
             />
-            <p style={styles.helpText}>
-              Positive to grant, negative to revoke. Range: -1000 to 1000.
-            </p>
+            <p style={styles.helpText}>Max ₹100,000 per adjustment.</p>
           </div>
           <div style={styles.formField}>
-            <label htmlFor="adjust-note" style={styles.formLabel}>
+            <label htmlFor="wallet-note" style={styles.formLabel}>
               Reason Note
             </label>
             <textarea
-              id="adjust-note"
+              id="wallet-note"
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="Reason for this adjustment (required)"
@@ -477,115 +513,7 @@ function AdjustSessionsModal({
               style={styles.btnPrimary}
               disabled={submitting}
             >
-              {submitting ? 'Applying…' : 'Apply Adjustment'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-function LifetimeModal({
-  userId,
-  onClose,
-  onSuccess,
-}: {
-  userId: string;
-  onClose: () => void;
-  onSuccess: () => void;
-}) {
-  const [note, setNote] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
-  const [confirmed, setConfirmed] = useState(false);
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    setError('');
-
-    if (!confirmed) {
-      setError('Please confirm you want to grant lifetime access.');
-      return;
-    }
-    if (!note.trim() || note.trim().length > 500) {
-      setError('Note is required (1–500 characters).');
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      await apiRequest(`/admin/users/${userId}/entitlement-adjust`, {
-        method: 'POST',
-        body: {
-          session_delta: 1,
-          note: `[LIFETIME GRANT] ${note.trim()}`,
-        },
-      });
-      onSuccess();
-      onClose();
-    } catch (err) {
-      if (err instanceof ApiClientError) {
-        setError(err.message);
-      } else {
-        setError('Failed to grant lifetime access.');
-      }
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <div style={styles.modalOverlay} onClick={onClose}>
-      <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-        <h2 style={styles.modalTitle}>Grant Lifetime Access</h2>
-        <form onSubmit={handleSubmit}>
-          {error && <div role="alert" style={styles.errorBox}>{error}</div>}
-          <p style={styles.warningText}>
-            This will grant the user unlimited interview sessions for the
-            lifetime of their account. This action cannot be easily undone.
-          </p>
-          <div style={styles.formField}>
-            <label htmlFor="lifetime-note" style={styles.formLabel}>
-              Reason Note
-            </label>
-            <textarea
-              id="lifetime-note"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="Reason for granting lifetime access (required)"
-              required
-              maxLength={500}
-              rows={3}
-              style={styles.formTextarea}
-            />
-            <p style={styles.helpText}>{note.length}/500 characters</p>
-          </div>
-          <div style={styles.formField}>
-            <label style={styles.checkboxLabel}>
-              <input
-                type="checkbox"
-                checked={confirmed}
-                onChange={(e) => setConfirmed(e.target.checked)}
-              />
-              {' '}I confirm I want to grant lifetime access to this user
-            </label>
-          </div>
-          <div style={styles.modalActions}>
-            <button
-              type="button"
-              onClick={onClose}
-              style={styles.btnSecondary}
-              disabled={submitting}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              style={styles.btnDanger}
-              disabled={submitting || !confirmed}
-            >
-              {submitting ? 'Granting…' : 'Grant Lifetime Access'}
+              {submitting ? 'Applying…' : 'Apply'}
             </button>
           </div>
         </form>

@@ -1,26 +1,21 @@
 /**
- * Scheduled unmatched-webhook reconciliation handler.
+ * Scheduled unmatched-webhook reconciliation handler (wallet top-up model).
  *
  * Re-reads `razorpay_events` rows where `unmatched = true` and
  * `processed = false`. For each event, checks whether a matching
- * `purchases` row now exists (the purchase may have been created after
- * the webhook arrived due to race conditions). If a match is found and
- * the purchase is still `pending`, the handler processes the event
- * (updates purchase status + appends an entitlement ledger entry). If
- * no match is found, the event is left for the next scheduled run.
+ * `wallet_topups` row now exists (the top-up may have been persisted after the
+ * webhook arrived due to a race). If a match is found and the top-up is still
+ * `pending`, the handler processes the event (updates the top-up and credits
+ * the wallet). If no match is found, the event is left for the next run.
  *
- * The function processes each event in its own transaction so that a
- * failure on one event does not roll back progress on others, while
- * still satisfying Requirement 15.5 (no partial commits per event).
- *
- * Wired into the platform's scheduled-invocation manifest (cron or
- * equivalent). Not exposed as an HTTP endpoint.
+ * Each event is processed in its own transaction so a failure on one event does
+ * not roll back progress on others.
  *
  * Requirements: 10.10, 15.4, 15.5.
  */
 
 import type { Pool } from 'pg';
-import { appendLedgerEntry } from '../entitlement/ledger.js';
+import { appendWalletEntry } from '../wallet/ledger.js';
 import { Logger } from '../log/logger.js';
 
 const logger = new Logger({ bindings: { module: 'webhook_reconciliation' } });
@@ -44,16 +39,11 @@ interface UnmatchedEventRow {
   raw_payload: unknown;
 }
 
-interface PurchaseRow {
+interface TopupRow {
   id: string;
   user_id: string;
-  pack_slug: string;
+  amount_paise: string | number;
   status: string;
-}
-
-interface PackRow {
-  session_count: number | null;
-  is_lifetime: boolean;
 }
 
 /**
@@ -69,8 +59,6 @@ export async function runWebhookReconciliation(
 ): Promise<ReconciliationResult> {
   const effectiveNow = now ?? new Date();
 
-  // Read all unmatched, unprocessed events. These are events whose
-  // order_id did not match any purchases row at webhook receipt time.
   const unmatchedResult = await pool.query<UnmatchedEventRow>(
     `SELECT event_id, event_type, order_id, payment_id, raw_payload
        FROM razorpay_events
@@ -85,7 +73,6 @@ export async function runWebhookReconciliation(
   let errorCount = 0;
 
   for (const event of events) {
-    // Skip events without an order_id — nothing to match against.
     if (!event.order_id) {
       stillUnmatchedCount++;
       continue;
@@ -95,27 +82,23 @@ export async function runWebhookReconciliation(
     try {
       await client.query('BEGIN');
 
-      // Look up the purchase by razorpay_order_id.
-      const purchaseResult = await client.query<PurchaseRow>(
-        `SELECT id, user_id, pack_slug, status
-           FROM purchases
+      const topupResult = await client.query<TopupRow>(
+        `SELECT id, user_id, amount_paise, status
+           FROM wallet_topups
           WHERE razorpay_order_id = $1
           FOR UPDATE`,
         [event.order_id],
       );
 
-      const purchase = purchaseResult.rows[0];
+      const topup = topupResult.rows[0];
 
-      if (!purchase) {
-        // Still no matching purchase row — leave for next run.
+      if (!topup) {
         await client.query('ROLLBACK');
         stillUnmatchedCount++;
         continue;
       }
 
-      // If the purchase is already completed or failed, just mark the
-      // event as processed (it's a replay of an already-handled state).
-      if (purchase.status !== 'pending') {
+      if (topup.status !== 'pending') {
         await client.query(
           `UPDATE razorpay_events
               SET processed = true,
@@ -128,58 +111,31 @@ export async function runWebhookReconciliation(
         continue;
       }
 
-      // Process based on event type.
       if (event.event_type === 'payment.captured') {
-        // Look up the pack to determine session_count or lifetime.
-        const packResult = await client.query<PackRow>(
-          `SELECT session_count, is_lifetime
-             FROM packs
-            WHERE slug = $1`,
-          [purchase.pack_slug],
-        );
-        const pack = packResult.rows[0];
-
-        if (!pack) {
-          // Pack no longer exists — unusual but possible. Log and skip.
+        if (!event.payment_id) {
+          // Cannot complete a top-up without a payment id (violates the
+          // wallet_topups completed-state CHECK). Leave for manual handling.
           await client.query('ROLLBACK');
-          logger.warn('reconciliation_pack_not_found', {
-            event_id: event.event_id,
-            pack_slug: purchase.pack_slug,
-          });
-          errorCount++;
+          stillUnmatchedCount++;
           continue;
         }
-
-        // Update purchase to completed.
         await client.query(
-          `UPDATE purchases
+          `UPDATE wallet_topups
               SET status = 'completed',
                   razorpay_payment_id = $1,
                   completed_at = $2
             WHERE id = $3`,
-          [event.payment_id, effectiveNow, purchase.id],
+          [event.payment_id, effectiveNow, topup.id],
         );
 
-        // Append entitlement ledger entry.
-        if (pack.is_lifetime) {
-          await appendLedgerEntry(client, {
-            userId: purchase.user_id,
-            sessionDelta: 1,
-            lifetimeFlagSet: 'set_true',
-            reason: 'lifetime_grant',
-            razorpayPaymentId: event.payment_id,
-          });
-        } else {
-          await appendLedgerEntry(client, {
-            userId: purchase.user_id,
-            sessionDelta: pack.session_count!,
-            lifetimeFlagSet: 'unchanged',
-            reason: 'pack_purchase',
-            razorpayPaymentId: event.payment_id,
-          });
-        }
+        await appendWalletEntry(client, {
+          userId: topup.user_id,
+          amountPaise: Number(topup.amount_paise),
+          reason: 'topup',
+          razorpayPaymentId: event.payment_id,
+          note: 'Wallet top-up (reconciled)',
+        });
 
-        // Mark event as processed and no longer unmatched.
         await client.query(
           `UPDATE razorpay_events
               SET processed = true,
@@ -194,20 +150,15 @@ export async function runWebhookReconciliation(
         logger.info('reconciliation_event_processed', {
           event_id: event.event_id,
           event_type: event.event_type,
-          purchase_id: purchase.id,
-          user_id: purchase.user_id,
-          pack_slug: purchase.pack_slug,
+          topup_id: topup.id,
+          user_id: topup.user_id,
         });
       } else if (event.event_type === 'payment.failed') {
-        // Update purchase to failed.
         await client.query(
-          `UPDATE purchases
-              SET status = 'failed'
-            WHERE id = $1`,
-          [purchase.id],
+          `UPDATE wallet_topups SET status = 'failed' WHERE id = $1`,
+          [topup.id],
         );
 
-        // Mark event as processed and no longer unmatched.
         await client.query(
           `UPDATE razorpay_events
               SET processed = true,
@@ -222,12 +173,11 @@ export async function runWebhookReconciliation(
         logger.info('reconciliation_event_processed', {
           event_id: event.event_id,
           event_type: event.event_type,
-          purchase_id: purchase.id,
-          user_id: purchase.user_id,
+          topup_id: topup.id,
+          user_id: topup.user_id,
           status: 'failed',
         });
       } else {
-        // Unknown event type — leave for next run but log a warning.
         await client.query('ROLLBACK');
         stillUnmatchedCount++;
         logger.warn('reconciliation_unknown_event_type', {
@@ -236,7 +186,6 @@ export async function runWebhookReconciliation(
         });
       }
     } catch (err) {
-      // Roll back on any error — Requirement 15.5: no partial commits.
       try {
         await client.query('ROLLBACK');
       } catch {

@@ -1,26 +1,23 @@
 /**
- * Razorpay webhook HTTP route.
+ * Razorpay webhook HTTP route (wallet top-up model).
  *
- * Exposes `POST /webhooks/razorpay` per Requirements 10.7, 10.8, 10.9, 10.10:
+ * `POST /webhooks/razorpay`:
  *   1. Verifies the HMAC-SHA256 signature (returns 400 on failure).
  *   2. Deduplicates by `event_id` (returns 200 for replays).
  *   3. Branches on `payment.captured` / `payment.failed`:
- *      - `payment.captured`: updates purchase to `completed`, appends
- *        ledger entry (`pack_purchase` or `lifetime_grant`).
- *      - `payment.failed`: updates purchase to `failed`.
- *   4. Marks the event as processed.
- *   5. Returns 200 for unknown order ids (sets `unmatched=true`).
- *   6. Returns 200 for successful processing.
- *   7. Returns 400 only for signature failures.
+ *      - `payment.captured`: marks the `wallet_topups` row `completed` and
+ *        credits the wallet (`wallet_ledger`, reason `topup`).
+ *      - `payment.failed`: marks the `wallet_topups` row `failed`.
+ *   4. Marks the event processed; unknown order ids are recorded `unmatched`.
  *
- * The entire flow runs in a single Postgres transaction so that dedupe,
- * purchase update, and ledger append are atomic.
+ * The whole flow runs in a single transaction so dedupe, top-up update, and
+ * wallet credit are atomic.
  */
 
 import { Hono } from 'hono';
 import type { Pool, PoolClient } from 'pg';
 import { verifyWebhookSignature } from './razorpay-signature.js';
-import { appendLedgerEntry } from '../entitlement/ledger.js';
+import { appendWalletEntry } from '../wallet/ledger.js';
 import { writeAudit } from '../log/audit.js';
 
 // ---------------------------------------------------------------------------
@@ -48,18 +45,12 @@ interface RazorpayWebhookPayload {
   };
 }
 
-/** Row from the `purchases` table. */
-interface PurchaseRow {
+/** Row from the `wallet_topups` table. */
+interface TopupRow {
   id: string;
   user_id: string;
-  pack_slug: string;
+  amount_paise: string | number;
   status: string;
-}
-
-/** Row from the `packs` table. */
-interface PackRow {
-  session_count: number | null;
-  is_lifetime: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,11 +68,8 @@ export function buildWebhookRouter(deps: WebhookRouterDeps): Hono {
     const rawBody = await c.req.text();
     const signature = c.req.header('X-Razorpay-Signature') ?? '';
 
-    // Verify HMAC-SHA256 signature (R10.5, R10.6)
     const isValid = verifyWebhookSignature(rawBody, signature, deps.webhookSecret);
     if (!isValid) {
-      // Write audit entry for signature failure (R10.6)
-      // We do this outside the main transaction since we're rejecting
       const auditClient = await deps.pool.connect();
       try {
         await auditClient.query('BEGIN');
@@ -119,11 +107,17 @@ export function buildWebhookRouter(deps: WebhookRouterDeps): Hono {
       );
     }
 
-    // Extract event_id from the parsed payload
-    // Razorpay sends event id at the top level as "id"
-    const razorpayEventId = (payload as unknown as Record<string, unknown>).id as string | undefined;
+    // Razorpay delivers the unique event id in the X-Razorpay-Event-Id header,
+    // not the JSON body. Fall back to a body `id` for test/mock compatibility.
+    const headerEventId = c.req.header('X-Razorpay-Event-Id');
+    const bodyEventId = (payload as unknown as Record<string, unknown>).id;
+    const razorpayEventId =
+      (typeof headerEventId === 'string' && headerEventId.length > 0)
+        ? headerEventId
+        : (typeof bodyEventId === 'string' && bodyEventId.length > 0)
+          ? bodyEventId
+          : undefined;
     if (!razorpayEventId) {
-      // If no event_id, still return 200 to avoid retries
       return c.json({ status: 'ignored', reason: 'missing_event_id' }, 200);
     }
 
@@ -137,7 +131,6 @@ export function buildWebhookRouter(deps: WebhookRouterDeps): Hono {
     try {
       await client.query('BEGIN');
 
-      // Dedupe by event_id (R10.9)
       const dedupeResult = await client.query(
         `INSERT INTO razorpay_events (event_id, event_type, order_id, payment_id, raw_payload)
          VALUES ($1, $2, $3, $4, $5::jsonb)
@@ -147,14 +140,11 @@ export function buildWebhookRouter(deps: WebhookRouterDeps): Hono {
       );
 
       if (dedupeResult.rows.length === 0) {
-        // This event was already processed — replay (R10.9)
         await client.query('COMMIT');
         return c.json({ status: 'already_processed' }, 200);
       }
 
-      // Only process payment.captured and payment.failed
       if (eventType !== 'payment.captured' && eventType !== 'payment.failed') {
-        // Mark as processed for non-payment events
         await client.query(
           `UPDATE razorpay_events SET processed = true WHERE event_id = $1`,
           [razorpayEventId],
@@ -163,9 +153,7 @@ export function buildWebhookRouter(deps: WebhookRouterDeps): Hono {
         return c.json({ status: 'ignored', reason: 'unhandled_event_type' }, 200);
       }
 
-      // Look up the purchase by razorpay_order_id
       if (!orderId) {
-        // No order_id in the event — mark unmatched
         await client.query(
           `UPDATE razorpay_events SET processed = true, unmatched = true WHERE event_id = $1`,
           [razorpayEventId],
@@ -174,16 +162,15 @@ export function buildWebhookRouter(deps: WebhookRouterDeps): Hono {
         return c.json({ status: 'unmatched', reason: 'no_order_id' }, 200);
       }
 
-      const purchaseResult = await client.query<PurchaseRow>(
-        `SELECT id, user_id, pack_slug, status
-           FROM purchases
+      const topupResult = await client.query<TopupRow>(
+        `SELECT id, user_id, amount_paise, status
+           FROM wallet_topups
           WHERE razorpay_order_id = $1`,
         [orderId],
       );
 
-      const purchase = purchaseResult.rows[0];
-      if (!purchase) {
-        // Unknown order id — mark unmatched (R10.10)
+      const topup = topupResult.rows[0];
+      if (!topup) {
         await client.query(
           `UPDATE razorpay_events SET processed = true, unmatched = true WHERE event_id = $1`,
           [razorpayEventId],
@@ -192,9 +179,8 @@ export function buildWebhookRouter(deps: WebhookRouterDeps): Hono {
         return c.json({ status: 'unmatched', reason: 'unknown_order_id' }, 200);
       }
 
-      // If purchase is already completed or failed, this is a replay for a
-      // known order — just mark processed and return 200 (R10.9)
-      if (purchase.status !== 'pending') {
+      // Replay for a top-up already resolved — just mark processed.
+      if (topup.status !== 'pending') {
         await client.query(
           `UPDATE razorpay_events SET processed = true WHERE event_id = $1`,
           [razorpayEventId],
@@ -203,11 +189,22 @@ export function buildWebhookRouter(deps: WebhookRouterDeps): Hono {
         return c.json({ status: 'already_processed' }, 200);
       }
 
-      // Branch on event type
       if (eventType === 'payment.captured') {
-        await handlePaymentCaptured(client, purchase, paymentId, razorpayEventId);
-      } else if (eventType === 'payment.failed') {
-        await handlePaymentFailed(client, purchase, razorpayEventId);
+        if (!paymentId) {
+          // A captured event with no payment id cannot satisfy the
+          // wallet_topups completed-state CHECK (payment_id NOT NULL). Rather
+          // than abort and trigger endless webhook retries, record it as
+          // unmatched (processed) so an admin can credit manually if needed.
+          await client.query(
+            `UPDATE razorpay_events SET processed = true, unmatched = true WHERE event_id = $1`,
+            [razorpayEventId],
+          );
+          await client.query('COMMIT');
+          return c.json({ status: 'unmatched', reason: 'missing_payment_id' }, 200);
+        }
+        await handlePaymentCaptured(client, topup, paymentId, razorpayEventId);
+      } else {
+        await handlePaymentFailed(client, topup, razorpayEventId);
       }
 
       await client.query('COMMIT');
@@ -228,53 +225,36 @@ export function buildWebhookRouter(deps: WebhookRouterDeps): Hono {
 // ---------------------------------------------------------------------------
 
 /**
- * Handle `payment.captured`: update purchase to completed, append ledger entry.
- * (R10.7)
+ * Handle `payment.captured`: mark the top-up completed and credit the wallet.
  */
 async function handlePaymentCaptured(
   client: PoolClient,
-  purchase: PurchaseRow,
+  topup: TopupRow,
   paymentId: string | null,
   eventId: string,
 ): Promise<void> {
-  // Update purchase status to 'completed'
-  await client.query(
-    `UPDATE purchases
+  // Conditional flip pending -> completed. Only the transaction that actually
+  // flips the row credits the wallet, so the webhook and the synchronous
+  // /payments/verify endpoint can never both credit the same top-up.
+  const updated = await client.query(
+    `UPDATE wallet_topups
         SET status = 'completed',
             razorpay_payment_id = $1,
             completed_at = now()
-      WHERE id = $2`,
-    [paymentId, purchase.id],
+      WHERE id = $2 AND status = 'pending'`,
+    [paymentId, topup.id],
   );
 
-  // Look up the pack to determine session_count or lifetime
-  const packResult = await client.query<PackRow>(
-    `SELECT session_count, is_lifetime FROM packs WHERE slug = $1`,
-    [purchase.pack_slug],
-  );
-  const pack = packResult.rows[0];
-
-  if (pack && pack.is_lifetime) {
-    // Lifetime grant (R10.7: reason 'lifetime_grant', lifetime_flag_set = 'set_true')
-    await appendLedgerEntry(client, {
-      userId: purchase.user_id,
-      sessionDelta: 1, // Must be non-zero per schema CHECK; use +1 as a token grant
-      lifetimeFlagSet: 'set_true',
-      reason: 'lifetime_grant',
+  if (updated.rowCount === 1) {
+    await appendWalletEntry(client, {
+      userId: topup.user_id,
+      amountPaise: Number(topup.amount_paise),
+      reason: 'topup',
       razorpayPaymentId: paymentId,
-    });
-  } else if (pack && pack.session_count) {
-    // Pack purchase (R10.7: reason 'pack_purchase', grant session_count)
-    await appendLedgerEntry(client, {
-      userId: purchase.user_id,
-      sessionDelta: pack.session_count,
-      lifetimeFlagSet: 'unchanged',
-      reason: 'pack_purchase',
-      razorpayPaymentId: paymentId,
+      note: 'Wallet top-up',
     });
   }
 
-  // Mark event as processed
   await client.query(
     `UPDATE razorpay_events SET processed = true WHERE event_id = $1`,
     [eventId],
@@ -282,20 +262,18 @@ async function handlePaymentCaptured(
 }
 
 /**
- * Handle `payment.failed`: update purchase to failed. (R10.8)
+ * Handle `payment.failed`: mark the top-up failed.
  */
 async function handlePaymentFailed(
   client: PoolClient,
-  purchase: PurchaseRow,
+  topup: TopupRow,
   eventId: string,
 ): Promise<void> {
-  // Update purchase status to 'failed'
   await client.query(
-    `UPDATE purchases SET status = 'failed' WHERE id = $1`,
-    [purchase.id],
+    `UPDATE wallet_topups SET status = 'failed' WHERE id = $1`,
+    [topup.id],
   );
 
-  // Mark event as processed
   await client.query(
     `UPDATE razorpay_events SET processed = true WHERE event_id = $1`,
     [eventId],
