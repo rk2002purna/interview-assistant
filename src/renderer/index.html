@@ -10,8 +10,7 @@
     #app { background: rgba(15,15,25,0.85); border: 1px solid rgba(99,179,237,0.15); border-radius: 14px; height: 100vh; display: flex; flex-direction: column; backdrop-filter: blur(8px); overflow: hidden; }
     #titlebar { -webkit-app-region: drag; background: transparent; padding: 8px 10px; display: flex; align-items: center; justify-content: flex-end; flex-shrink: 0; }
     .win-btns { -webkit-app-region: no-drag; display: flex; gap: 6px; }
-    .win-btn { width: 18px; height: 18px; border-radius: 50%; border: none; cursor: pointer; font-size: 9px; display: flex; align-items: center; justify-content: center; transition: opacity 0.2s; }
-    .win-btn:hover { opacity: 0.8; }
+    .win-btn { width: 18px; height: 18px; border-radius: 50%; border: none; cursor: pointer; font-size: 9px; display: flex; align-items: center; justify-content: center; }
     .btn-close { background: #fc5c65; color: #7a0000; }
     .btn-min { background: #fed330; color: #7a5500; }
     .btn-set { background: #45aaf2; color: #003060; }
@@ -65,6 +64,20 @@
     #screen-indicator { background: rgba(79,209,197,0.08); border-bottom: 1px solid rgba(79,209,197,0.15); }
     #screen-indicator .label { color: #4fd1c5; }
     #screen-indicator .info { color: #81e6d9; }
+    #passive-indicator { background: rgba(159,122,234,0.08); border-bottom: 1px solid rgba(159,122,234,0.15); }
+    #passive-indicator .label { color: #b794f4; }
+    #passive-indicator .info { color: #d6bcfa; }
+    #passive-submode-row { display: flex; gap: 6px; margin-top: 8px; }
+    .passive-submode-btn { flex: 1; padding: 6px 8px; border-radius: 8px; border: 1px solid rgba(159,122,234,0.25); background: rgba(159,122,234,0.08); color: #b794f4; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s; }
+    .passive-submode-btn:hover { background: rgba(159,122,234,0.16); }
+    .passive-submode-btn.active { background: rgba(159,122,234,0.3); border-color: rgba(159,122,234,0.6); color: #e9d8fd; }
+    #passive-control-row { display: flex; gap: 8px; margin-top: 8px; }
+    #passive-toggle-btn { flex: 1; padding: 10px; background: linear-gradient(135deg,#9f7aea,#805ad5); border: none; color: white; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 600; }
+    #passive-toggle-btn.active { background: linear-gradient(135deg,#fc8181,#e53e3e); }
+    #passive-toggle-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+    #passive-capture-btn { flex: 1; padding: 10px; background: linear-gradient(135deg,#4fd1c5,#319795); border: none; color: white; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 600; }
+    #passive-capture-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+    #passive-capture-btn.recording { background: linear-gradient(135deg,#fc8181,#e53e3e); }
     #transcript-box { padding: 0; background: rgba(0,0,0,0.25); border-bottom: 1px solid rgba(99,179,237,0.1); flex-shrink: 0; max-height: 0; overflow: hidden; transition: max-height 0.3s ease, padding 0.3s ease; }
     #transcript-box.visible { max-height: 120px; padding: 8px 14px; overflow-y: auto; }
     #transcript-box .label { font-size: 9px; color: #4a5568; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px; }
@@ -89,10 +102,35 @@
     #clear-history-btn { background: transparent; border: none; color: #fc5c65; padding: 3px 8px; border-radius: 8px; cursor: pointer; font-size: 10px; font-weight: 600; }
     #chat-history-panel { display: none; flex-direction: column; background: rgba(0,0,0,0.3); border-bottom: 1px solid rgba(99,179,237,0.1); max-height: 180px; overflow-y: auto; flex-shrink: 0; }
     #chat-history-panel.visible { display: flex; }
-    .chat-item { padding: 8px 14px; border-bottom: 1px solid rgba(99,179,237,0.08); }
+    .chat-item { padding: 8px 14px; border-bottom: 1px solid rgba(99,179,237,0.08); cursor: pointer; transition: background 0.15s; }
+    .chat-item:hover { background: rgba(99,179,237,0.08); }
+    .chat-item.active-memory { background: rgba(72,187,120,0.1); border-left: 2px solid #48bb78; }
     .chat-q { font-size: 11px; color: #63b3ed; font-weight: 600; margin-bottom: 3px; }
     .chat-a { font-size: 11px; color: #a0aec0; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     .chat-empty { padding: 20px; text-align: center; color: #4a5568; font-size: 11px; }
+    #memory-view-banner { display: none; align-items: center; justify-content: space-between; padding: 6px 14px; background: rgba(72,187,120,0.12); border-bottom: 1px solid rgba(72,187,120,0.25); flex-shrink: 0; gap: 8px; }
+    #memory-view-banner.visible { display: flex; }
+    #memory-view-banner .banner-label { font-size: 10px; color: #68d391; font-weight: 600; }
+    #memory-view-banner .banner-q { font-size: 10px; color: #a0aec0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #memory-back-btn { background: rgba(72,187,120,0.2); border: 1px solid rgba(72,187,120,0.4); color: #68d391; padding: 3px 10px; border-radius: 10px; cursor: pointer; font-size: 10px; font-weight: 600; white-space: nowrap; }
+    #memory-back-btn:hover { background: rgba(72,187,120,0.35); }
+    #usage-btn { background: rgba(72,187,120,0.1); border: 1px solid rgba(72,187,120,0.2); color: #68d391; padding: 3px 10px; border-radius: 12px; cursor: pointer; font-size: 10px; font-weight: 600; }
+    #usage-btn.active { background: rgba(72,187,120,0.3); border-color: rgba(72,187,120,0.5); }
+    #usage-panel { display: none; flex-direction: column; background: rgba(0,0,0,0.3); border-bottom: 1px solid rgba(99,179,237,0.1); max-height: 220px; overflow-y: auto; flex-shrink: 0; font-size: 10px; }
+    #usage-panel.visible { display: flex; }
+    #usage-stats { padding: 8px 14px; border-bottom: 1px solid rgba(99,179,237,0.08); }
+    #usage-stats table { width: 100%; border-collapse: collapse; }
+    #usage-stats th { color: #4a5568; font-size: 9px; text-transform: uppercase; text-align: left; padding: 2px 6px; }
+    #usage-stats td { color: #a0aec0; padding: 3px 6px; border-bottom: 1px solid rgba(99,179,237,0.05); }
+    #usage-stats .provider-name { color: #e2e8f0; font-weight: 600; }
+    #usage-stats .tokens-used { color: #fbd38d; }
+    #usage-stats .provider-active { color: #68d391; font-weight: 700; }
+    #usage-stats .provider-fallback { color: #ed8936; }
+    #usage-log { padding: 6px 14px; }
+    #usage-log .log-entry { padding: 2px 0; color: #718096; font-size: 9px; border-bottom: 1px solid rgba(99,179,237,0.03); }
+    #usage-log .log-entry .log-provider { color: #a0aec0; font-weight: 600; }
+    #usage-log .log-entry .log-tokens { color: #fbd38d; }
+    #usage-log .log-entry .log-error { color: #fc5c65; }
     .hide-in-passive { transition: opacity 0.3s; }
     .passive-active .hide-in-passive, .screen-active .hide-in-passive { opacity: 0.3; pointer-events: none; max-height: 0; overflow: hidden; padding: 0; }
     /* Extension pop-up */
@@ -137,7 +175,9 @@
     body.on-camera-mode #mode-toggle-bar,
     body.on-camera-mode #statusbar,
     body.on-camera-mode #screen-indicator,
+    body.on-camera-mode #memory-view-banner,
     body.on-camera-mode #chat-history-panel,
+    body.on-camera-mode #usage-panel,
     body.on-camera-mode #transcript-box,
     body.on-camera-mode #input-area,
     body.on-camera-mode #extend-popup,
@@ -193,7 +233,20 @@
     <span id="status-text">Ready</span>
     <button id="chat-history-btn" onclick="toggleChatHistory()">&#128172; Memory</button>
     <button id="clear-history-btn" onclick="clearChatHistory()">Clear</button>
+    <button id="usage-btn" onclick="toggleUsagePanel()">&#128200; Usage</button>
     <button id="mic-btn" onclick="toggleMic()">&#9654; Start</button>
+  </div>
+  <div id="passive-indicator" class="mode-indicator">
+    <div class="label">Passive Listening</div>
+    <div class="info" id="passive-info">Listening starts automatically when you enter Passive mode.</div>
+    <div id="passive-submode-row">
+      <button class="passive-submode-btn active" id="passive-auto-btn" onclick="setPassiveSubMode('auto')">🎧 Auto</button>
+      <button class="passive-submode-btn" id="passive-manual-btn" onclick="setPassiveSubMode('manual')">👆 Manual</button>
+    </div>
+    <div id="passive-control-row">
+      <button id="passive-toggle-btn" onclick="togglePassiveListening()">&#9654; Start Passive</button>
+      <button id="passive-capture-btn" onclick="manualPassiveCapture()" style="display:none">🎯 Capture Now</button>
+    </div>
   </div>
   <div id="screen-indicator" class="mode-indicator">
     <div class="label">Screen Analyzer</div>
@@ -204,7 +257,19 @@
     </div>
     <button id="clear-captures-btn" onclick="clearCaptures()" style="margin-top:6px; width:100%; padding:6px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); color:#a0aec0; border-radius:6px; cursor:pointer; font-size:11px;">🗑️ Clear captures</button>
   </div>
+  <div id="memory-view-banner">
+    <span class="banner-label">📖 Memory</span>
+    <span class="banner-q" id="memory-banner-q"></span>
+    <button id="memory-back-btn" onclick="exitMemoryView()">↩ Back</button>
+  </div>
   <div id="chat-history-panel"><div id="chat-history-list"></div></div>
+  <div id="usage-panel">
+    <div id="usage-stats"></div>
+    <div id="usage-log"></div>
+    <div style="padding:6px 14px 8px; border-top:1px solid rgba(99,179,237,0.06);">
+      <button id="clear-usage-btn" onclick="clearUsageData()" style="width:100%;padding:5px;background:rgba(252,92,101,0.12);border:1px solid rgba(252,92,101,0.25);color:#fc5c65;border-radius:6px;cursor:pointer;font-size:10px;font-weight:600;">🗑 Clear Usage Data</button>
+    </div>
+  </div>
   <div id="transcript-box"><div class="label">Detected Question</div><div id="transcript-text"></div></div>
   <div id="answer-wrap"><div class="label">Answer</div><div id="answer-text">Select a mode to get started.</div></div>
   <div id="input-area" class="hide-in-passive">
@@ -231,8 +296,103 @@ var appPlatform = 'win32'; // updated on init via IPC
 let mediaRecorder = null, audioContext = null, analyser = null, audioChunks = [], isProcessing = false, silenceDuration = 0, speechDetected = false;
 let passiveStream = null, passiveRecorder = null, passiveAudioContext = null, passiveAnalyser = null, passiveChunks = [], passiveProcessing = false;
 let passiveLevelHistory = [], passiveSpeaking = false, passiveSilenceFrames = 0, passiveSpeechFrames = 0, passiveBaseline = 0, passiveMonitorTimer = null, passiveActiveTranscriptions = 0;
+// Passive sub-mode: 'auto' = VAD-driven (auto-detect speech), 'manual' = push-to-capture
+let passiveSubMode = 'auto';
+let passiveManualRecording = false; // true while a manual capture is in progress
 let screenCaptureInterval = null, screenLastText = '', screenProcessing = false, screenStitcherBuffer = '', screenStitcherTimer = null, screenProcessedQuestions = [], screenCaptureIntervalMs = 4000;
-const SILENCE_THRESHOLD_MS = 2500, MIN_AUDIO_SIZE = 500, SPEECH_VOLUME_THRESHOLD = 25;
+const SILENCE_THRESHOLD_MS = 2500, MIN_AUDIO_SIZE = 4096, SPEECH_VOLUME_THRESHOLD = 25;
+
+// ===== PERSISTENT MEMORY =====
+let memoryItems = [];
+let viewingMemoryId = null;
+let liveAnswerText = '';
+let activeConversationId = 'conv_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+
+function generateMemoryId() {
+  return 'mem_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+}
+
+function saveMemoryItems() {
+  try {
+    if (memoryItems.length > 200) memoryItems = memoryItems.slice(-200);
+    localStorage.setItem('interviewMemoryItems', JSON.stringify(memoryItems));
+  } catch (e) {}
+}
+
+function migrateConversationHistoryToMemory() {
+  var users = conversationHistory.filter(function(message) { return message.role === 'user'; });
+  var assistants = conversationHistory.filter(function(message) { return message.role === 'assistant'; });
+  var migrated = [];
+  for (var i = 0; i < users.length; i++) {
+    var question = users[i] && typeof users[i].content === 'string' ? users[i].content : '';
+    var response = assistants[i] && typeof assistants[i].content === 'string' ? assistants[i].content : '';
+    if (!question || !response) continue;
+    migrated.push({
+      id: generateMemoryId(),
+      question: question,
+      response: response,
+      timestamp: new Date().toISOString(),
+      conversationId: activeConversationId
+    });
+  }
+  if (migrated.length) {
+    memoryItems = migrated;
+    saveMemoryItems();
+  }
+}
+
+function loadMemoryItems() {
+  try {
+    var stored = localStorage.getItem('interviewMemoryItems');
+    memoryItems = stored ? JSON.parse(stored) : [];
+  } catch (e) {
+    memoryItems = [];
+  }
+  if (!memoryItems.length && conversationHistory.length) {
+    migrateConversationHistoryToMemory();
+  }
+}
+
+function addToMemory(question, response) {
+  if (!question || !response) return;
+  memoryItems.push({
+    id: generateMemoryId(),
+    question: question,
+    response: response,
+    timestamp: new Date().toISOString(),
+    conversationId: activeConversationId
+  });
+  saveMemoryItems();
+  renderChatHistory();
+}
+
+function viewMemoryItem(id) {
+  var item = memoryItems.find(function(entry) { return entry.id === id; });
+  if (!item) return;
+  if (!viewingMemoryId) {
+    liveAnswerText = document.getElementById('answer-text').innerHTML;
+  }
+  viewingMemoryId = id;
+  document.getElementById('answer-text').innerHTML = renderAnswer(item.response);
+  document.getElementById('memory-view-banner').classList.add('visible');
+  document.getElementById('memory-banner-q').textContent = item.question;
+  renderChatHistory();
+  setTimeout(function() {
+    var panel = document.getElementById('chat-history-panel');
+    if (panel.classList.contains('visible')) {
+      panel.classList.remove('visible');
+      document.getElementById('chat-history-btn').classList.remove('active');
+    }
+  }, 200);
+}
+
+function exitMemoryView() {
+  viewingMemoryId = null;
+  document.getElementById('answer-text').innerHTML = liveAnswerText || 'Select a mode to get started.';
+  document.getElementById('memory-view-banner').classList.remove('visible');
+  document.getElementById('memory-banner-q').textContent = '';
+  renderChatHistory();
+}
 
 // ===== SESSION STATE =====
 let sessionActive = false;
@@ -250,6 +410,8 @@ async function init() {
   try { appPlatform = await ipcRenderer.invoke('get-platform'); } catch(e) {}
   await reloadConfig();
   loadChatHistory();
+  loadMemoryItems();
+  renderChatHistory();
   // Initialize session state from backend
   await syncSessionState();
   // Listen for session state changes from the session controller
@@ -571,6 +733,7 @@ function switchMode(mode) {
   document.getElementById('manual-mode-btn').classList.remove('active');
   document.getElementById('passive-mode-btn').classList.remove('active');
   document.getElementById('screen-mode-btn').classList.remove('active');
+  document.getElementById('passive-indicator').classList.remove('visible');
   document.getElementById('screen-indicator').classList.remove('visible');
   document.getElementById('mic-btn').style.display = '';
   if (mode === 'manual') {
@@ -580,6 +743,8 @@ function switchMode(mode) {
     app.classList.add('passive-active');
     document.getElementById('passive-mode-btn').classList.add('active');
     document.getElementById('mic-btn').style.display = 'none';
+    document.getElementById('passive-indicator').classList.add('visible');
+    setPassiveControlState('starting');
     setStatus('Starting passive audio capture...');
     startPassiveMode();
   } else if (mode === 'screen') {
@@ -666,6 +831,7 @@ async function captureScreenshot() {
 
 async function analyzeScreenNow() {
   if (screenAnalyzing || capturedScreenshots.length === 0) return;
+  if (viewingMemoryId) exitMemoryView();
 
   screenAnalyzing = true;
   var analyzeBtn = document.getElementById('analyze-screen-btn');
@@ -717,9 +883,11 @@ async function analyzeScreenNow() {
         if (visionFirstChunkTimer) { clearTimeout(visionFirstChunkTimer); visionFirstChunkTimer = null; }
         if (firstChunk) { answerEl.innerHTML = ''; firstChunk = false; }
         streamed += delta;
-        answerEl.innerHTML = renderAnswer(streamed);
+        if (!viewingMemoryId) answerEl.innerHTML = renderAnswer(streamed);
       },
-      'vision'
+      'vision',
+      600,
+      0.25
     );
 
     var data = await Promise.race([visionPromise, visionFirstChunkTimeout]);
@@ -737,7 +905,9 @@ async function analyzeScreenNow() {
       conversationHistory.push({ role: 'user', content: '[Screen analysis - ' + count + ' screenshot(s)]' });
       conversationHistory.push({ role: 'assistant', content: ans });
       saveChatHistory(); renderChatHistory();
-      answerEl.innerHTML = renderAnswer(ans);
+      addToMemory('[Screen analysis - ' + count + ' screenshot(s)]', ans);
+      liveAnswerText = renderAnswer(ans);
+      if (!viewingMemoryId) answerEl.innerHTML = liveAnswerText;
       setStatus('Answer ready - capture more or clear for next question');
     }
   } catch (e) {
@@ -773,6 +943,7 @@ function textSimilarity(a, b) {
 
 // ===== PASSIVE MODE =====
 async function startPassiveMode() {
+  setPassiveControlState('starting');
   // Detect platform once
   if (!appPlatform || appPlatform === 'win32') {
     try { appPlatform = await ipcRenderer.invoke('get-platform'); } catch(e) {}
@@ -793,7 +964,7 @@ async function startPassiveMode() {
   try {
     var sources = await ipcRenderer.invoke('get-desktop-sources');
     var src = sources.find(function(s){return s.name==='Entire Screen'||s.name==='Entire screen';}) || sources.find(function(s){return s.id.startsWith('screen:');}) || sources[0];
-    if (!src) { setStatus('No screen source found'); return; }
+    if (!src) { setStatus('No screen source found'); setPassiveControlState('stopped'); return; }
     passiveStream = await navigator.mediaDevices.getUserMedia({ audio:{mandatory:{chromeMediaSource:'desktop'}}, video:{mandatory:{chromeMediaSource:'desktop',chromeMediaSourceId:src.id,minWidth:1,maxWidth:1,minHeight:1,maxHeight:1}} });
     passiveStream.getVideoTracks().forEach(function(t){t.stop();});
     var at = passiveStream.getAudioTracks();
@@ -807,6 +978,7 @@ async function startPassiveMode() {
     startPassiveRecording(audioStream);
     document.getElementById('status-dot').classList.add('passive');
     setStatus('Passive listening active');
+    setPassiveControlState('active');
   } catch (e) { setStatus('Passive mode error: ' + e.message); await startPassiveFallback(); }
 }
 
@@ -835,6 +1007,7 @@ async function startPassiveMacOS() {
     startPassiveRecording(passiveStream);
     document.getElementById('status-dot').classList.add('passive');
     setStatus('Passive via ' + lb.label);
+    setPassiveControlState('active');
     return true;
   } catch(e) { return false; }
 }
@@ -852,8 +1025,10 @@ async function startPassiveMic() {
     startPassiveRecording(passiveStream);
     document.getElementById('status-dot').classList.add('passive');
     setStatus('Passive (mic) - listening to your microphone');
+    setPassiveControlState('active');
   } catch(e) {
     setStatus('Microphone access denied: ' + e.message);
+    setPassiveControlState('stopped');
   }
 }
 
@@ -872,11 +1047,12 @@ async function startPassiveFallback() {
       passiveAudioContext = new AudioContext(); passiveAnalyser = passiveAudioContext.createAnalyser();
       passiveAudioContext.createMediaStreamSource(passiveStream).connect(passiveAnalyser); passiveAnalyser.fftSize = 256;
       startPassiveRecording(passiveStream); document.getElementById('status-dot').classList.add('passive'); setStatus('Passive via ' + lb.label);
+      setPassiveControlState('active');
     } else {
       // Last resort: use the microphone
       await startPassiveMic();
     }
-  } catch(e) { setStatus('Fallback failed: ' + e.message); }
+  } catch(e) { setStatus('Fallback failed: ' + e.message); setPassiveControlState('stopped'); }
 }
 // ===== Continuous passive recording with sliding-window VAD =====
 // Strategy: keep recording continuously. Use volume monitoring to detect speech
@@ -1034,7 +1210,7 @@ async function processPassiveUtterance(blob) {
 
   try {
     var b64 = await blobToBase64(blob);
-    var r = await ipcRenderer.invoke('transcribe-audio', { audioData: b64 });
+    var r = await ipcRenderer.invoke('transcribe-audio', { audioData: b64, mimeType: 'audio/webm;codecs=opus' });
 
     if (r.error) {
       setStatus('Transcription error: ' + (r.error.message || 'unknown'));
@@ -1082,17 +1258,223 @@ function stopPassiveMode() {
   passiveChunks = [];
   passiveLevelHistory = [];
   document.getElementById('status-dot').classList.remove('passive');
+  setPassiveControlState('stopped');
 }
 function blobToBase64(blob){return new Promise(function(resolve){var r=new FileReader();r.onloadend=function(){resolve(r.result.split(',')[1]);};r.readAsDataURL(blob);});}
 
+function setPassiveControlState(state) {
+  var btn = document.getElementById('passive-toggle-btn');
+  var info = document.getElementById('passive-info');
+  if (!btn || !info) return;
+
+  if (state === 'starting') {
+    btn.disabled = true;
+    btn.classList.remove('active');
+    btn.innerHTML = 'Starting...';
+    info.textContent = 'Preparing passive audio capture...';
+    return;
+  }
+
+  if (state === 'active') {
+    btn.disabled = false;
+    btn.classList.add('active');
+    btn.innerHTML = '&#9632; Stop Passive';
+    info.textContent = 'Passive is listening for interview questions.';
+    return;
+  }
+
+  btn.disabled = false;
+  btn.classList.remove('active');
+  btn.innerHTML = '&#9654; Start Passive';
+  info.textContent = 'Passive is paused. Start again when you are ready.';
+}
+
+async function togglePassiveListening() {
+  if (currentMode !== 'passive') return;
+  if (passiveStream) {
+    stopPassiveMode();
+    setStatus('Passive paused');
+    return;
+  }
+  setStatus('Starting passive audio capture...');
+  await startPassiveMode();
+}
+
+// ===== PASSIVE SUB-MODE (Auto/Manual) =====
+// passiveSubMode and passiveManualRecording are declared in STATE section above
+
+function setPassiveSubMode(mode) {
+  passiveSubMode = mode;
+  var autoBtn = document.getElementById('passive-auto-btn');
+  var manualBtn = document.getElementById('passive-manual-btn');
+  var toggleBtn = document.getElementById('passive-toggle-btn');
+  var captureBtn = document.getElementById('passive-capture-btn');
+  var info = document.getElementById('passive-info');
+
+  if (mode === 'auto') {
+    autoBtn.classList.add('active');
+    manualBtn.classList.remove('active');
+    toggleBtn.style.display = '';
+    captureBtn.style.display = 'none';
+    if (passiveManualRecording) {
+      // Stop manual recording when switching to auto
+      if (passiveStream) stopPassiveMode();
+      passiveManualRecording = false;
+    }
+    info.textContent = 'Auto: Listens for interviewer voice automatically';
+  } else {
+    manualBtn.classList.add('active');
+    autoBtn.classList.remove('active');
+    // In manual mode, show capture button instead of toggle
+    toggleBtn.style.display = 'none';
+    captureBtn.style.display = '';
+    if (passiveStream) stopPassiveMode();
+    passiveManualRecording = false;
+    info.textContent = 'Manual: Click capture to record and transcribe';
+  }
+}
+
+async function manualPassiveCapture() {
+  if (passiveManualRecording) return; // Already recording
+
+  var captureBtn = document.getElementById('passive-capture-btn');
+  var info = document.getElementById('passive-info');
+
+  if (!passiveStream) {
+    // Start audio capture first
+    setStatus('Starting manual capture...');
+    setPassiveControlState('starting');
+
+    try {
+      appPlatform = await ipcRenderer.invoke('get-platform');
+
+      // Try system audio first, fallback to mic
+      if (appPlatform !== 'darwin') {
+        try {
+          var sources = await ipcRenderer.invoke('get-desktop-sources');
+          var src = sources.find(function(s){return s.name==='Entire Screen'||s.name==='Entire screen';}) || sources.find(function(s){return s.id.startsWith('screen:');}) || sources[0];
+          if (src) {
+            passiveStream = await navigator.mediaDevices.getUserMedia({ audio:{mandatory:{chromeMediaSource:'desktop'}}, video:{mandatory:{chromeMediaSource:'desktop',chromeMediaSourceId:src.id,minWidth:1,maxWidth:1,minHeight:1,maxHeight:1}} });
+            passiveStream.getVideoTracks().forEach(function(t){t.stop();});
+            var at = passiveStream.getAudioTracks();
+            if (at.length) {
+              var audioStream = new MediaStream(at);
+              passiveStream = audioStream;
+            }
+          }
+        } catch(e) { /* Fall through to mic */ }
+      }
+
+      // Fallback to microphone if no system audio
+      if (!passiveStream || !passiveStream.getAudioTracks().length) {
+        passiveStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true } });
+      }
+    } catch(e) {
+      setStatus('Capture error: ' + e.message);
+      return;
+    }
+  }
+
+  // Start recording
+  passiveManualRecording = true;
+  passiveChunks = [];
+
+  var mimeType = 'audio/webm;codecs=opus';
+  if (!MediaRecorder.isTypeSupported(mimeType)) {
+    mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg;codecs=opus';
+  }
+
+  passiveRecorder = new MediaRecorder(passiveStream, { mimeType: mimeType, audioBitsPerSecond: 96000 });
+  passiveRecorder.ondataavailable = function(e) {
+    if (e.data.size > 0) passiveChunks.push(e.data);
+  };
+  passiveRecorder.onstop = async function() {
+    if (passiveChunks.length > 0) {
+      var blob = new Blob(passiveChunks, { type: mimeType });
+      if (blob.size > 2000) {
+        setStatus('Transcribing...');
+        await processManualPassiveCapture(blob, mimeType);
+      }
+    }
+    passiveChunks = [];
+    passiveManualRecording = false;
+    captureBtn.classList.remove('recording');
+    captureBtn.textContent = '🎯 Capture Now';
+  };
+
+  passiveRecorder.start(200);
+  captureBtn.classList.add('recording');
+  captureBtn.textContent = '⏹️ Stop Capture';
+  info.textContent = 'Recording... click Stop when done';
+
+  // Auto-stop after 30 seconds max
+  setTimeout(function() {
+    if (passiveManualRecording && passiveRecorder && passiveRecorder.state === 'recording') {
+      passiveRecorder.stop();
+    }
+  }, 30000);
+}
+
+async function processManualPassiveCapture(blob, mimeType) {
+  try {
+    var b64 = await blobToBase64(blob);
+    var r = await ipcRenderer.invoke('transcribe-audio', { audioData: b64, mimeType: mimeType });
+
+    if (r.error) {
+      setStatus('Transcription error: ' + (r.error.message || 'unknown'));
+      return;
+    }
+
+    if (r.text && r.text.trim()) {
+      var t = r.text.trim();
+      document.getElementById('transcript-text').textContent = t;
+      document.getElementById('transcript-box').classList.add('visible');
+      await askQuestion(t);
+      setTimeout(function() {
+        document.getElementById('transcript-box').classList.remove('visible');
+      }, 10000);
+    } else {
+      setStatus('No speech detected');
+    }
+  } catch(e) {
+    setStatus('Capture error: ' + e.message);
+  }
+}
+
 // ===== MANUAL MODE =====
-async function startAudioRecording(){try{var stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});audioContext=new AudioContext();analyser=audioContext.createAnalyser();audioContext.createMediaStreamSource(stream).connect(analyser);analyser.fftSize=256;mediaRecorder=new MediaRecorder(stream,{mimeType:'audio/webm'});audioChunks=[];silenceDuration=0;speechDetected=false;isProcessing=false;mediaRecorder.ondataavailable=function(e){if(e.data.size>0)audioChunks.push(e.data);};mediaRecorder.onstop=async function(){if(isProcessing)return;var blob=new Blob(audioChunks,{type:'audio/webm'});stream.getTracks().forEach(function(t){t.stop();});if(blob.size>MIN_AUDIO_SIZE)await processManualAudio(blob);else if(isListening&&!isProcessing)setTimeout(startAudioRecording,500);};mediaRecorder.start(500);monitorManualAudio();setStatus('Listening...');return true;}catch(e){setStatus('Audio error: '+e.message);return false;}}
+async function startAudioRecording(){
+  try{
+    var stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+    audioContext=new AudioContext();
+    analyser=audioContext.createAnalyser();
+    audioContext.createMediaStreamSource(stream).connect(analyser);
+    analyser.fftSize=256;
+    var mimeType='audio/webm;codecs=opus';
+    if(!MediaRecorder.isTypeSupported(mimeType)){
+      mimeType=MediaRecorder.isTypeSupported('audio/webm')?'audio/webm':'audio/ogg;codecs=opus';
+    }
+    mediaRecorder=new MediaRecorder(stream,{mimeType:mimeType,audioBitsPerSecond:96000});
+    audioChunks=[];silenceDuration=0;speechDetected=false;isProcessing=false;
+    mediaRecorder.ondataavailable=function(e){if(e.data.size>0)audioChunks.push(e.data);};
+    mediaRecorder.onstop=async function(){
+      if(isProcessing)return;
+      var blob=new Blob(audioChunks,{type:mimeType});
+      stream.getTracks().forEach(function(t){t.stop();});
+      if(blob.size>MIN_AUDIO_SIZE)await processManualAudio(blob,mimeType);
+      else if(isListening&&!isProcessing)setTimeout(startAudioRecording,500);
+    };
+    mediaRecorder.start(500);
+    monitorManualAudio();
+    setStatus('Listening...');
+    return true;
+  }catch(e){setStatus('Audio error: '+e.message);return false;}
+}
 function monitorManualAudio(){if(!isListening||isProcessing||!analyser)return;var d=new Uint8Array(analyser.frequencyBinCount);analyser.getByteFrequencyData(d);var sum=0;for(var i=0;i<d.length;i++)sum+=d[i];if(sum/d.length>30){speechDetected=true;silenceDuration=0;}else if(speechDetected){silenceDuration+=100;if(silenceDuration>=SILENCE_THRESHOLD_MS&&!isProcessing){if(mediaRecorder&&mediaRecorder.state!=='inactive')mediaRecorder.stop();return;}}if(isListening&&!isProcessing)setTimeout(monitorManualAudio,100);}
-async function processManualAudio(blob){
+async function processManualAudio(blob,mimeType){
   isProcessing=true;
   setStatus('Processing...');
   var b64=await blobToBase64(blob);
-  var r=await ipcRenderer.invoke('transcribe-audio',{audioData:b64});
+  var r=await ipcRenderer.invoke('transcribe-audio',{audioData:b64,mimeType:mimeType||'audio/webm;codecs=opus'});
   if(r.error){
     setStatus('Transcription error: '+(r.error.message||'unknown'));
   } else if(r.text&&r.text.trim()){
@@ -1114,21 +1496,21 @@ async function toggleMic(){if(isListening){stopAllAudio();}else{var ok=await sta
 
 // ===== AI (shared) =====
 // Try primary, then fallback if primary errors. Streams tokens via onDelta.
-async function callAIStream(messages, systemPrompt, onDelta, target) {
+async function callAIStream(messages, systemPrompt, onDelta, target, maxTokens, temperature) {
   // target = 'text' or 'vision'
   var primary = target === 'vision' ? routing.visionPrimary : routing.textPrimary;
   var fallback = target === 'vision' ? routing.visionFallback : routing.textFallback;
 
   // Try primary provider via backend (backend manages API keys)
   if (primary && primary.provider && primary.model) {
-    var result = await invokeProviderStream(primary.provider, '', primary.model, messages, systemPrompt, onDelta);
+    var result = await invokeProviderStream(primary.provider, '', primary.model, messages, systemPrompt, onDelta, maxTokens, temperature);
     if (!result.error) return result;
     // Primary failed — log and try fallback if configured
     console.warn('Primary failed:', result.error.message);
     if (!fallback || !fallback.provider || !fallback.model) return result;
 
     setStatus('Primary failed, trying fallback (' + fallback.provider + ')...');
-    var fallbackResult = await invokeProviderStream(fallback.provider, '', fallback.model, messages, systemPrompt, onDelta);
+    var fallbackResult = await invokeProviderStream(fallback.provider, '', fallback.model, messages, systemPrompt, onDelta, maxTokens, temperature);
     if (fallbackResult.error) {
       return { error: { message: 'Both primary and fallback failed. Primary: ' + result.error.message + '. Fallback: ' + fallbackResult.error.message } };
     }
@@ -1137,13 +1519,13 @@ async function callAIStream(messages, systemPrompt, onDelta, target) {
 
   // No primary configured — try fallback directly
   if (fallback && fallback.provider && fallback.model) {
-    return await invokeProviderStream(fallback.provider, '', fallback.model, messages, systemPrompt, onDelta);
+    return await invokeProviderStream(fallback.provider, '', fallback.model, messages, systemPrompt, onDelta, maxTokens, temperature);
   }
 
   return { error: { message: 'No AI provider configured. Contact admin.' } };
 }
 
-async function invokeProviderStream(provider, key, model, messages, systemPrompt, onDelta) {
+async function invokeProviderStream(provider, key, model, messages, systemPrompt, onDelta, maxTokens, temperature) {
   var streamId = 'stream_' + Date.now() + '_' + Math.random();
   // Backend expects model in "provider/model" format for routing
   var fullModel = model.includes('/') ? model : (provider + '/' + model);
@@ -1156,7 +1538,8 @@ async function invokeProviderStream(provider, key, model, messages, systemPrompt
   try {
     var result = await ipcRenderer.invoke('call-ai-stream', {
       provider: provider, apiKey: key, model: fullModel,
-      messages: messages, systemPrompt: systemPrompt, streamId: streamId
+      messages: messages, systemPrompt: systemPrompt, streamId: streamId,
+      maxTokens: maxTokens, temperature: temperature
     });
     return result;
   } finally {
@@ -1170,9 +1553,24 @@ function getActiveApiKey() {
 }
 
 async function askQuestion(question){
+  if(viewingMemoryId) exitMemoryView();
   var dot=document.getElementById('status-dot');dot.classList.remove('listening','passive','screen-active');dot.classList.add('thinking');setStatus('Getting answer...');
   var el=document.getElementById('answer-text');el.innerHTML='<span class="thinking-dots">Thinking...</span>';
   conversationHistory.push({role:'user',content:question});saveChatHistory();
+  var classification=classifyQuestion(question);
+  var maxTokens=AI_TOKENS[classification]||AI_TOKENS.normal;
+  var temperature=AI_TEMP[classification]||AI_TEMP.normal;
+  var contextBlock='';
+  if(resumeContext) contextBlock+='=== CANDIDATE BACKGROUND ===\n'+resumeContext;
+  if(jobContext) contextBlock+='\n=== TARGET ROLE ===\n'+jobContext;
+  if(contextBlock){
+    contextBlock+='\n\nCRITICAL: You ARE this candidate. Answer in first person using their background. Never reveal you are an AI.';
+  } else {
+    contextBlock='NOTE: No background provided. Answer as a realistic 3-year experienced professional. Never reveal you are an AI.';
+  }
+  var systemPrompt=buildAdaptiveSystemPrompt(classification,contextBlock);
+  var historyPairs=(classification==='system_design'||classification==='detailed')?4:2;
+  var historySlice=conversationHistory.slice(-historyPairs-1);
   var streamed='';
   var firstChunk=true;
   var firstChunkTimer=null;
@@ -1187,53 +1585,17 @@ async function askQuestion(question){
       }, FIRST_CHUNK_TIMEOUT_MS);
     });
 
-    var aiPromise=callAIStream(conversationHistory.slice(-6),
-      buildSystemPrompt(`You are a job candidate in a live interview. You must answer the interviewer's questions in first person as a real human professional — never break character.
-
-HOW TO ANSWER:
-
-1. SPEAK LIKE A REAL PERSON
-   - Use natural conversational English with contractions (I'm, I'd, I've, that's, it's)
-   - Vary your sentence length — mix short direct statements with longer explanations
-   - Show personality: confidence, curiosity, honesty. Real people don't sound like press releases.
-   - NEVER start with filler preambles — no "Sure!", "Great question!", "Let me walk you through...", "That's a great question." Just answer the question directly.
-   - NEVER use phrases like "one must consider", "it is noteworthy", "I shall endeavor" — that's AI-speak
-   - DO NOT number your points out loud, use headings, or structure your answer with labels — just speak naturally
-
-2. STRUCTURE YOUR ANSWER NATURALLY
-   - Open with a direct response to the question (1-2 sentences)
-   - Back it up with a concrete example or story from your background (2-4 sentences)
-   - Connect it to why this matters for the role you're interviewing for (1-2 sentences)
-   - End with a brief wrap-up that shows reflection
-
-3. FOR BEHAVIORAL QUESTIONS (tell me about a time, how do you handle, etc.)
-   - Tell a genuine story with a beginning, middle, and end
-   - Include: what happened → what YOU specifically did → what you learned
-   - Be honest about challenges — perfect stories sound fake
-
-4. FOR TECHNICAL QUESTIONS
-   - Define the concept clearly in your own words first
-   - Explain with a practical example from your actual experience
-   - If you don't know something: admit it honestly and explain how you'd figure it out
-
-5. FOR "FUTURE GOALS" QUESTIONS (where do you see yourself, 3 years, 5 years, etc.)
-   - Anchor your answer in YOUR actual skills and the target role
-   - Show ambition but be realistic: growth in skills, scope, impact — not "I want to be CEO"
-   - Mention specific technologies or domains from your background you want to deepen
-
-6. FOR CODING QUESTIONS
-   - Walk through your approach first in plain language
-   - Then provide clean, working code in a code block
-
-CRITICAL: You ARE the candidate, not an AI. Never mention being an AI, assistant, or language model.
-Answer elaborately — this is a real interview, not a chatbot. Give full, thoughtful answers.`),
+    var aiPromise=callAIStream(historySlice,
+      systemPrompt,
       function(delta){
         if(firstChunkTimer){clearTimeout(firstChunkTimer);firstChunkTimer=null;}
         if(firstChunk){ el.innerHTML=''; firstChunk=false; setStatus('Answering...'); }
         streamed+=delta;
-        el.innerHTML=renderAnswer(streamed);
+        if(!viewingMemoryId) el.innerHTML=renderAnswer(streamed);
       },
-      'text'
+      'text',
+      maxTokens,
+      temperature
     );
 
     var data=await Promise.race([aiPromise, firstChunkTimeout]);
@@ -1251,8 +1613,11 @@ Answer elaborately — this is a real interview, not a chatbot. Give full, thoug
     }
     else{
       var ans=data.content[0].text || streamed;
-      conversationHistory.push({role:'assistant',content:ans});saveChatHistory();renderChatHistory();
-      el.innerHTML=renderAnswer(ans);
+      conversationHistory.push({role:'assistant',content:ans});saveChatHistory();
+      addToMemory(question,ans);
+      liveAnswerText=renderAnswer(ans);
+      if(!viewingMemoryId) el.innerHTML=liveAnswerText;
+      renderChatHistory();
     }
   }catch(e){
     if(firstChunkTimer){clearTimeout(firstChunkTimer);firstChunkTimer=null;}
@@ -1270,12 +1635,174 @@ Answer elaborately — this is a real interview, not a chatbot. Give full, thoug
 }
 function restoreStatusDot(){var dot=document.getElementById('status-dot');if(currentMode==='passive')dot.classList.add('passive');else if(currentMode==='screen')dot.classList.add('screen-active');else if(isListening)dot.classList.add('listening');}
 
-// ===== CHAT =====
-function loadChatHistory(){try{var s=localStorage.getItem('interviewChatHistory');if(s){conversationHistory=JSON.parse(s);renderChatHistory();}}catch(e){}}
+// ===== CHAT / MEMORY =====
+function loadChatHistory(){try{var s=localStorage.getItem('interviewChatHistory');if(s){conversationHistory=JSON.parse(s);}}catch(e){}}
 function saveChatHistory(){try{localStorage.setItem('interviewChatHistory',JSON.stringify(conversationHistory));ipcRenderer.send('sync-chat-history', conversationHistory);}catch(e){}}
-function renderChatHistory(){var list=document.getElementById('chat-history-list');var u=conversationHistory.filter(function(m){return m.role==='user';});if(!u.length){list.innerHTML='<div class="chat-empty">No history</div>';return;}var a=conversationHistory.filter(function(m){return m.role==='assistant';});list.innerHTML=u.map(function(m,i){return '<div class="chat-item"><div class="chat-q">Q: '+escapeHtml(m.content.substring(0,60))+'</div><div class="chat-a">A: '+escapeHtml((a[i]?a[i].content:'').substring(0,100))+'</div></div>';}).join('');}
+function renderChatHistory(){
+  var list=document.getElementById('chat-history-list');
+  if(!memoryItems.length){
+    list.innerHTML='<div class="chat-empty">No memory yet — ask a question to get started</div>';
+    return;
+  }
+  var items=memoryItems.slice().reverse();
+  list.innerHTML=items.map(function(item){
+    var isActive=viewingMemoryId===item.id;
+    var ts='';
+    try{
+      ts=new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }catch(e){}
+    return '<div class="chat-item'+(isActive?' active-memory':'')+'" onclick="viewMemoryItem(\''+item.id+'\')" title="Click to view this answer"><div class="chat-q">Q: '+escapeHtml((item.question||'').substring(0,70))+'</div><div class="chat-a">A: '+escapeHtml((item.response||'').substring(0,100))+'</div><div style="font-size:9px;color:#4a5568;margin-top:2px;">'+ts+'</div></div>';
+  }).join('');
+}
 function toggleChatHistory(){document.getElementById('chat-history-panel').classList.toggle('visible');document.getElementById('chat-history-btn').classList.toggle('active');}
-function clearChatHistory(){if(confirm('Clear history?')){conversationHistory=[];saveChatHistory();renderChatHistory();setStatus('Cleared');}}
+function clearChatHistory(){
+  if(confirm('Clear all memory? This cannot be undone.')){
+    conversationHistory=[];memoryItems=[];viewingMemoryId=null;liveAnswerText='';
+    saveChatHistory();saveMemoryItems();
+    document.getElementById('memory-view-banner').classList.remove('visible');
+    document.getElementById('memory-banner-q').textContent='';
+    renderChatHistory();
+    setStatus('Memory cleared');
+  }
+}
+
+// ===== ADAPTIVE QUESTION CLASSIFICATION =====
+var AI_TOKENS={
+  quick:120,
+  normal:220,
+  detailed:350,
+  coding_explanation:450,
+  system_design:600
+};
+var AI_TEMP={
+  quick:0.25,
+  normal:0.25,
+  detailed:0.25,
+  coding_explanation:0.25,
+  system_design:0.25
+};
+
+function classifyQuestion(q){
+  var t=(q||'').toLowerCase().trim();
+  if(/\b(design|architect|scalab|distributed|microservice.*(communicat|architect)|notification system|event.driven|message queue|kafka|rabbitm|load balanc|caching strateg|circuit breaker|service mesh|api gateway|saga pattern|cqrs|event sourcing)\b/.test(t)) return 'system_design';
+  if(/\b(troubleshoot|debug.*production|production.*issue|incident|root cause|postmortem|outage|memory leak|cpu spike|thread dump|heap dump)\b/.test(t)) return 'system_design';
+  if(/\b(garbage collect|jvm|classload|bytecode|weak ref|soft ref|phantom ref|finaliz|memory model|happens.before|volatile|synchronized|reentrant|fork.join|completable.future|reactor|webflux|hibernate.*(intern|cache|lazy|fetch)|spring.*(aop|proxy|cglib|bean lifecycle)|kubernetes.*(deploy|pod|service|ingress|configmap|secret)|docker.*(layer|network|volume)|explain.*vs|compare.*vs|difference between|how does .* work internally)\b/.test(t)) return 'coding_explanation';
+  if(/\b(how (do|would|did|can) you (handle|implement|use|manage|secure|optimize|configure|set up|deploy|test|write|build)|what (is your|was your|approach|strategy|pattern)|exception.*handling|transaction|caching|security|jwt|oauth|pagination|rate limit|retry|circuit|index|query optim|rest.*best|spring.*boot|ci.cd|unit test|integration test|docker.*compose|helm)\b/.test(t)) return 'detailed';
+  if(/^(what is|what are|define|explain what|tell me what|can you define)\b/.test(t)&&t.split(' ').length<12) return 'quick';
+  return 'normal';
+}
+
+function buildAdaptiveSystemPrompt(classification, baseContext){
+  var lengthGuidance={
+    quick:'Answer in 4-6 clear lines. Be direct, no fluff.',
+    normal:'Answer in 5-8 lines. Be clear and confident.',
+    detailed:'Answer in 6-10 lines. Include one practical example from your experience.',
+    coding_explanation:'Give a clear explanation with how it works, a practical example, and a one-line interview-ready conclusion. Include code only if the interviewer specifically asked for code.',
+    system_design:'Give a structured answer with key components, trade-offs, and steps. Use short bullet points only for system design or architecture. Include real-world considerations.'
+  };
+  var systemPrompt=`You are a real-time interview assistant for software engineering interviews.
+Answer as a confident candidate with 3 years of experience in Java, Spring Boot, Microservices, AWS, SQL, React, Angular, Docker, and Kubernetes.
+
+RULES:
+- Answer directly — never start with "Sure", "Great question", "Of course", or any filler opener.
+- Never repeat the question back.
+- Speak in first person, natural English with contractions (I've, I'd, I'm, that's).
+- Do not add bullet points unless the question is about system design or architecture.
+- Do not provide code unless the interviewer specifically asks for code.
+- Do not add headings or section labels.
+- End the answer cleanly — no "I hope that helps" or summary restatements.
+
+LENGTH GUIDANCE: ${lengthGuidance[classification] || lengthGuidance.normal}`;
+  if(baseContext) systemPrompt+='\n\n'+baseContext;
+  return systemPrompt;
+}
+
+// ===== USAGE TRACKING =====
+var usageByProvider = {};
+var usageLog = [];
+var activeProvider = null;
+
+function trackUsage(data) {
+  var provider = data.provider || 'unknown';
+  var usage = data.usage || {};
+  if (!usageByProvider[provider]) {
+    usageByProvider[provider] = { calls: 0, promptTokens: 0, compTokens: 0, totalTokens: 0 };
+  }
+  usageByProvider[provider].calls++;
+  usageByProvider[provider].promptTokens += usage.prompt_tokens || 0;
+  usageByProvider[provider].compTokens += usage.completion_tokens || 0;
+  usageByProvider[provider].totalTokens += usage.total_tokens || 0;
+  activeProvider = provider;
+  usageLog.unshift({
+    time: new Date().toLocaleTimeString(),
+    provider: provider,
+    model: data.model || '',
+    tokens: usage.total_tokens || 0,
+    estimated: usage.estimated || false,
+    error: data.error || null
+  });
+  if (usageLog.length > 50) usageLog.length = 50;
+  renderUsagePanel();
+}
+
+function renderUsagePanel() {
+  var statsEl = document.getElementById('usage-stats');
+  var logEl = document.getElementById('usage-log');
+  var providers = Object.keys(usageByProvider);
+  if (!providers.length) {
+    statsEl.innerHTML = '<div style="color:#4a5568;padding:4px 0;">No AI calls yet. Start a session to see usage.</div>';
+  } else {
+    var html = '<table><tr><th>Provider</th><th>Calls</th><th>Tokens</th><th>Status</th></tr>';
+    for (var i = 0; i < providers.length; i++) {
+      var provider = providers[i];
+      var data = usageByProvider[provider];
+      var statusClass = '';
+      var statusText = '—';
+      if (provider === activeProvider) {
+        statusClass = 'provider-active';
+        statusText = '● Active';
+      } else if (provider === (routing.textFallback || {}).provider || provider === (routing.visionFallback || {}).provider) {
+        statusClass = 'provider-fallback';
+        statusText = 'Fallback';
+      }
+      html += '<tr>';
+      html += '<td class="provider-name">' + (provider === 'digitalocean' ? 'DigitalOcean' : provider.charAt(0).toUpperCase() + provider.slice(1)) + '</td>';
+      html += '<td>' + data.calls + '</td>';
+      html += '<td class="tokens-used">' + data.totalTokens.toLocaleString() + '</td>';
+      html += '<td class="' + statusClass + '">' + statusText + '</td>';
+      html += '</tr>';
+    }
+    html += '</table>';
+    statsEl.innerHTML = html;
+  }
+  var logHtml = '';
+  var show = Math.min(usageLog.length, 15);
+  for (var j = 0; j < show; j++) {
+    var entry = usageLog[j];
+    logHtml += '<div class="log-entry' + (entry.error ? ' log-error' : '') + '">';
+    logHtml += '<span style="color:#4a5568;">' + entry.time + '</span> ';
+    logHtml += '<span class="log-provider">' + escapeHtml(entry.provider) + '</span> ';
+    logHtml += entry.error
+      ? '<span class="log-error">✗ ' + escapeHtml(entry.error.substring(0, 60)) + '</span>'
+      : '<span class="log-tokens">' + entry.tokens.toLocaleString() + ' tok</span>';
+    logHtml += ' <span style="color:#4a5568;">' + escapeHtml(entry.model) + '</span>';
+    if (entry.estimated) logHtml += ' <span style="color:#718096;">(est)</span>';
+    logHtml += '</div>';
+  }
+  logEl.innerHTML = logHtml || '<div style="color:#4a5568;">No calls logged.</div>';
+}
+
+function toggleUsagePanel() {
+  document.getElementById('usage-panel').classList.toggle('visible');
+  document.getElementById('usage-btn').classList.toggle('active');
+}
+
+function clearUsageData() {
+  usageByProvider = {};
+  usageLog = [];
+  activeProvider = null;
+  renderUsagePanel();
+}
 
 // ===== UTIL =====
 function handleKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();askManual();}}
@@ -1284,9 +1811,13 @@ function renderAnswer(text){return text.replace(/```(\w*)\n?([\s\S]*?)```/g,func
 function escapeHtml(t){return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function setStatus(msg){document.getElementById('status-text').textContent=msg;}
 function openSettings(){ipcRenderer.send('open-settings');}
-function minimize(){ipcRenderer.send('minimize-window');}
-function restoreWindow(){ipcRenderer.send('restore-window');}
+function minimize(){document.body.classList.add('mini-mode');ipcRenderer.send('minimize-window');}
+function restoreWindow(){document.body.classList.remove('mini-mode');ipcRenderer.send('restore-window');}
 function closeApp(){ipcRenderer.send('close-app');}
+
+ipcRenderer.on('ai-usage-update', function(_event, data) {
+  trackUsage(data);
+});
 
 // ── Mini-mode listener ──
 ipcRenderer.on('mini-mode', function(_event, isMini) {

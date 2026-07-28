@@ -328,17 +328,65 @@ ipcMain.on('config-changed-broadcast', () => {
   mainWindow?.webContents.send('config-changed');
 });
 
-ipcMain.handle('load-config', () => {
+ipcMain.handle('load-config', async () => {
   const configPath = path.join(os.homedir(), '.interview-assistant-config.json');
-  if (fs.existsSync(configPath)) {
-    return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  const config = fs.existsSync(configPath)
+    ? JSON.parse(fs.readFileSync(configPath, 'utf8'))
+    : {};
+
+  try {
+    const routingResult = await backendRequest({
+      method: 'GET',
+      path: '/config/model-routing'
+    });
+    if (routingResult.ok && routingResult.data && routingResult.data.routing) {
+      config.routing = routingResult.data.routing;
+    }
+  } catch {
+    // Preserve local config when the public routing endpoint is unavailable.
   }
-  return {};
+
+  return config;
 });
 
 ipcMain.handle('get-platform', () => {
   return process.platform;
 });
+
+function estimateUsage(messages, systemPrompt, fullText) {
+  const promptTokens = Math.ceil((JSON.stringify(messages || []).length + String(systemPrompt || '').length) / 4);
+  const completionTokens = Math.ceil(String(fullText || '').length / 4);
+  return {
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    total_tokens: promptTokens + completionTokens,
+    estimated: true
+  };
+}
+
+function normalizeUsage(usage, fallbackUsage) {
+  if (!usage || typeof usage !== 'object') return fallbackUsage;
+  const promptTokens = typeof usage.prompt_tokens === 'number' ? usage.prompt_tokens : fallbackUsage.prompt_tokens;
+  const completionTokens = typeof usage.completion_tokens === 'number' ? usage.completion_tokens : fallbackUsage.completion_tokens;
+  const totalTokens = typeof usage.total_tokens === 'number' ? usage.total_tokens : promptTokens + completionTokens;
+  return {
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    total_tokens: totalTokens,
+    estimated: usage.estimated === true
+  };
+}
+
+function inferAudioFileConfig(mimeType) {
+  const normalized = typeof mimeType === 'string' ? mimeType.toLowerCase() : 'audio/webm;codecs=opus';
+  if (normalized.startsWith('audio/ogg')) {
+    return { fileName: 'audio.ogg', contentType: 'audio/ogg' };
+  }
+  if (normalized.startsWith('audio/mp4')) {
+    return { fileName: 'audio.mp4', contentType: 'audio/mp4' };
+  }
+  return { fileName: 'audio.webm', contentType: 'audio/webm' };
+}
 
 ipcMain.handle('call-ai-api', async (event, { model, messages, systemPrompt }) => {
   try {
@@ -417,7 +465,7 @@ ipcMain.handle('call-gemini-api', async (event, { model, messages, systemPrompt 
 });
 
 // Streaming AI handler - emits tokens to renderer as they arrive via backend AI Proxy
-ipcMain.handle('call-ai-stream', async (event, { provider, model, messages, systemPrompt, streamId }) => {
+ipcMain.handle('call-ai-stream', async (event, { provider, model, messages, systemPrompt, streamId, maxTokens, temperature }) => {
   const sender = event.sender;
 
   try {
@@ -431,10 +479,18 @@ ipcMain.handle('call-ai-stream', async (event, { provider, model, messages, syst
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 60000);
 
+    const requestBody = { model, messages, systemPrompt, stream: true };
+    if (typeof maxTokens === 'number' && Number.isFinite(maxTokens) && maxTokens > 0) {
+      requestBody.maxTokens = Math.max(1, Math.floor(maxTokens));
+    }
+    if (typeof temperature === 'number' && Number.isFinite(temperature)) {
+      requestBody.temperature = temperature;
+    }
+
     const result = await backendRequest({
       method: 'POST',
       path: endpoint,
-      body: { model, messages, systemPrompt, stream: true },
+      body: requestBody,
       stream: true,
       signal: controller.signal
     });
@@ -442,7 +498,13 @@ ipcMain.handle('call-ai-stream', async (event, { provider, model, messages, syst
     clearTimeout(timeout);
 
     if (!result.ok) {
-      return { error: { message: result.error ? result.error.message : 'Request failed' } };
+      const error = {
+        message: result.error ? result.error.message : 'Request failed',
+        code: result.error ? result.error.code : undefined,
+        status: result.status
+      };
+      sender.send('ai-usage-update', { provider, model, usage: {}, error: error.message });
+      return { error };
     }
 
     const response = result.raw;
@@ -450,6 +512,7 @@ ipcMain.handle('call-ai-stream', async (event, { provider, model, messages, syst
     const decoder = new TextDecoder();
     let buffer = '';
     let fullText = '';
+    let streamUsage = null;
 
     try {
       while (true) {
@@ -468,6 +531,10 @@ ipcMain.handle('call-ai-stream', async (event, { provider, model, messages, syst
 
           try {
             const json = JSON.parse(data);
+            if (json.usage && typeof json.usage === 'object') {
+              streamUsage = json.usage;
+              continue;
+            }
             // Handle backend SSE format: { delta: "..." }
             if (json.delta) {
               fullText += json.delta;
@@ -481,7 +548,9 @@ ipcMain.handle('call-ai-stream', async (event, { provider, model, messages, syst
             }
             // Handle error in stream
             else if (json.error) {
-              return { error: { message: json.error.message || 'Stream error' } };
+              const message = json.error.message || 'Stream error';
+              sender.send('ai-usage-update', { provider, model, usage: {}, error: message });
+              return { error: { message } };
             }
           } catch {
             // ignore parse errors on partial chunks
@@ -493,15 +562,20 @@ ipcMain.handle('call-ai-stream', async (event, { provider, model, messages, syst
     }
 
     if (!fullText) {
-      return { error: { message: 'Empty response from AI service' } };
+      const message = 'Empty response from AI service';
+      sender.send('ai-usage-update', { provider, model, usage: {}, error: message });
+      return { error: { message } };
     }
 
-    return { content: [{ text: fullText }] };
+    const usage = normalizeUsage(streamUsage, estimateUsage(messages, systemPrompt, fullText));
+    sender.send('ai-usage-update', { provider, model, usage });
+    return { content: [{ text: fullText }], usage };
   } catch (e) {
-    if (e.name === 'AbortError') {
-      return { error: { message: 'Request timed out' } };
-    }
-    return { error: { message: 'Network error: ' + e.message } };
+    const message = e.name === 'AbortError'
+      ? 'Request timed out'
+      : 'Network error: ' + e.message;
+    sender.send('ai-usage-update', { provider, model, usage: {}, error: message });
+    return { error: { message } };
   }
 });
 
@@ -564,17 +638,19 @@ ipcMain.handle('capture-screen-frame', async () => {
   }
 });
 
-ipcMain.handle('transcribe-audio', async (event, { audioData }) => {
+ipcMain.handle('transcribe-audio', async (event, { audioData, mimeType }) => {
   try {
     // Build multipart form data for the /ai/audio endpoint
     const audioBuffer = Buffer.from(audioData, 'base64');
+    if (audioBuffer.length < 1024) {
+      return { error: { message: 'Audio too short or empty — please speak clearly and try again.' } };
+    }
     const { getClientId } = require('./auth/client-id');
+    const { fileName, contentType } = inferAudioFileConfig(mimeType);
 
     // Use native fetch with FormData (Node 22 supports this)
-    const { FormData, File } = require('node:buffer');
-    // Node 22 has global FormData and File via undici
     const formData = new globalThis.FormData();
-    const file = new globalThis.File([audioBuffer], 'audio.webm', { type: 'audio/webm' });
+    const file = new globalThis.File([audioBuffer], fileName, { type: contentType });
     formData.append('file', file);
     formData.append('model', 'whisper-large-v3');
 
