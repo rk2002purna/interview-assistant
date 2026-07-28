@@ -7,7 +7,6 @@ const NAV_ITEMS = [
   { to: '/model-routing',   label: '🤖 Model Routing' },
   { to: '/usage-analytics', label: '📊 Usage Analytics' },
   { to: '/packs',           label: '📦 Packs' },
-  { to: '/welcome-offer',   label: '🎁 Welcome Offer' },
   { to: '/rate-limits',     label: '⚡ Rate Limits' },
   { to: '/audit-log',       label: '📋 Audit Log' },
 ];

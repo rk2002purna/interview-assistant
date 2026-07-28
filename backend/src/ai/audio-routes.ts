@@ -139,6 +139,36 @@ async function defaultTranscribe(
     `${model}${CRLF}`,
   ));
 
+  // Force English transcription. Without an explicit `language`, Whisper
+  // auto-detects the spoken language and may transcribe (or translate) the
+  // audio into another language such as Hindi. That non-English transcript
+  // then flows into the LLM, which replies in the same language. Pinning
+  // the language to English keeps the whole pipeline English-only.
+  parts.push(Buffer.from(
+    `--${boundary}${CRLF}` +
+    `Content-Disposition: form-data; name="language"${CRLF}${CRLF}` +
+    `en${CRLF}`,
+  ));
+
+  // Deterministic decoding + JSON response for stable, repeatable output.
+  parts.push(Buffer.from(
+    `--${boundary}${CRLF}` +
+    `Content-Disposition: form-data; name="response_format"${CRLF}${CRLF}` +
+    `json${CRLF}`,
+  ));
+  parts.push(Buffer.from(
+    `--${boundary}${CRLF}` +
+    `Content-Disposition: form-data; name="temperature"${CRLF}${CRLF}` +
+    `0${CRLF}`,
+  ));
+
+  // Bias the decoder toward an English technical-interview context.
+  parts.push(Buffer.from(
+    `--${boundary}${CRLF}` +
+    `Content-Disposition: form-data; name="prompt"${CRLF}${CRLF}` +
+    `Technical interview question about software engineering, coding, or behavioral topics.${CRLF}`,
+  ));
+
   // Closing boundary
   parts.push(Buffer.from(`--${boundary}--${CRLF}`));
 

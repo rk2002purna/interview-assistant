@@ -10,6 +10,7 @@ interface UserListItem {
   created_at: string;
   session_count: number;
   lifetime_flag: boolean;
+  wallet_balance_paise: number;
 }
 
 interface UsersListResponse {
@@ -107,18 +108,17 @@ export default function UsersListPage() {
     setCursor(null);
   }
 
-  function getEntitlementBadge(user: UserListItem) {
-    if (user.lifetime_flag) {
-      return <span style={styles.badgeLifetime}>Lifetime</span>;
-    }
-    if (user.session_count > 0) {
-      return (
-        <span style={styles.badgeSessions}>
-          {user.session_count} session{user.session_count !== 1 ? 's' : ''}
-        </span>
-      );
-    }
-    return <span style={styles.badgeNone}>No sessions</span>;
+  function getWalletBadge(user: UserListItem) {
+    const balance = user.wallet_balance_paise ?? 0;
+    const rupees = '₹' + (balance / 100).toLocaleString('en-IN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    return (
+      <span style={balance > 0 ? styles.badgeSessions : styles.badgeNone}>
+        {rupees}
+      </span>
+    );
   }
 
   return (
@@ -248,7 +248,7 @@ export default function UsersListPage() {
               <th style={styles.th}>Email</th>
               <th style={styles.th}>Role</th>
               <th style={styles.th}>Verified</th>
-              <th style={styles.th}>Entitlement</th>
+              <th style={styles.th}>Wallet</th>
               <th style={styles.th}>Created</th>
             </tr>
           </thead>
@@ -281,7 +281,7 @@ export default function UsersListPage() {
                 <td style={styles.td}>
                   {user.email_verified ? '✓' : '✗'}
                 </td>
-                <td style={styles.td}>{getEntitlementBadge(user)}</td>
+                <td style={styles.td}>{getWalletBadge(user)}</td>
                 <td style={styles.td}>
                   {new Date(user.created_at).toLocaleDateString()}
                 </td>

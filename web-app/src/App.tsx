@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
@@ -6,8 +6,10 @@ import CallbackPage from './pages/CallbackPage';
 import DesktopAuthPage from './pages/DesktopAuthPage';
 import VerifyEmailPage from './pages/VerifyEmailPage';
 import CheckoutPage from './pages/CheckoutPage';
-import PricingPage from './pages/PricingPage';
 import DownloadPage from './pages/DownloadPage';
+import WalletPage from './pages/WalletPage';
+import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 import AdminLayout from './pages/admin/AdminLayout';
 import AdminUsersList from './pages/admin/UsersListPage';
 import AdminUserDetail from './pages/admin/UserDetailPage';
@@ -26,6 +28,12 @@ function ProtectedRoute({ children, requireAdmin = false }: { children: React.Re
   return <>{children}</>;
 }
 
+/** Legacy /checkout links now resolve to the single /pricing page, keeping ?amount. */
+function CheckoutRedirect() {
+  const { search } = useLocation();
+  return <Navigate to={`/pricing${search}`} replace />;
+}
+
 export default function App() {
   return (
     <Routes>
@@ -33,12 +41,16 @@ export default function App() {
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/password-reset/confirm" element={<ResetPasswordPage />} />
       <Route path="/callback" element={<CallbackPage />} />
       <Route path="/desktop-auth" element={<DesktopAuthPage />} />
       <Route path="/verify-email" element={<VerifyEmailPage />} />
-      <Route path="/checkout" element={<CheckoutPage />} />
-      <Route path="/pricing" element={<PricingPage />} />
+      {/* Single pricing + top-up + pay page. /checkout kept as a redirect. */}
+      <Route path="/pricing" element={<CheckoutPage />} />
+      <Route path="/checkout" element={<CheckoutRedirect />} />
       <Route path="/download" element={<DownloadPage />} />
+      <Route path="/wallet" element={<ProtectedRoute><WalletPage /></ProtectedRoute>} />
 
       {/* Admin routes */}
       <Route path="/admin" element={<ProtectedRoute requireAdmin><AdminLayout /></ProtectedRoute>}>

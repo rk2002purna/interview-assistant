@@ -61,3 +61,42 @@ export function getWebhookSecret(): string {
   }
   return secret;
 }
+
+/**
+ * Verify a Razorpay Standard Checkout payment signature.
+ *
+ * After a successful payment the browser returns `razorpay_order_id`,
+ * `razorpay_payment_id`, and `razorpay_signature`. The signature is
+ * HMAC-SHA256 of `"{order_id}|{payment_id}"` keyed with the Razorpay
+ * KEY_SECRET. This confirms the payment result was not tampered with
+ * before the wallet is credited.
+ *
+ * @param orderId    - razorpay_order_id returned by checkout.
+ * @param paymentId  - razorpay_payment_id returned by checkout.
+ * @param signature  - razorpay_signature returned by checkout.
+ * @param keySecret  - The Razorpay KEY_SECRET (server-only).
+ * @returns `true` if the signature is valid, `false` otherwise.
+ */
+export function verifyPaymentSignature(
+  orderId: string,
+  paymentId: string,
+  signature: string,
+  keySecret: string,
+): boolean {
+  if (!orderId || !paymentId || !signature || !keySecret) {
+    return false;
+  }
+
+  const expectedDigest = createHmac('sha256', keySecret)
+    .update(`${orderId}|${paymentId}`)
+    .digest('hex');
+
+  if (signature.length !== expectedDigest.length) {
+    return false;
+  }
+
+  return timingSafeEqual(
+    Buffer.from(signature, 'utf8'),
+    Buffer.from(expectedDigest, 'utf8'),
+  );
+}

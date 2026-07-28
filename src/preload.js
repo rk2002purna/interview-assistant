@@ -36,12 +36,18 @@ const interviewAssistantApi = {
     },
   },
 
+  // ── Wallet namespace ────────────────────────────────────────────────────────
+  wallet: {
+    get: () => ipcRenderer.invoke('wallet:get'),
+  },
+
   // ── Session namespace ───────────────────────────────────────────────────────
   session: {
     start: () => ipcRenderer.invoke('session:start'),
     end: () => ipcRenderer.invoke('session:end'),
     extend: () => ipcRenderer.invoke('session:extend'),
     getActive: () => ipcRenderer.invoke('session:getActive'),
+    heartbeat: (sessionId) => ipcRenderer.invoke('session:heartbeat', sessionId),
     onStateChanged: (handler) => {
       const listener = (_event, state) => handler(state);
       ipcRenderer.on('session:stateChanged', listener);

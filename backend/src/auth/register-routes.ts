@@ -35,7 +35,7 @@ import { Hono } from 'hono';
 import type { Pool, PoolClient } from 'pg';
 import { z } from 'zod';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { appendLedgerEntry } from '../entitlement/ledger.js';
+import { appendWalletEntry, SIGNUP_BONUS_PAISE } from '../wallet/ledger.js';
 import {
   PasswordPolicyError,
   hash as hashPassword,
@@ -217,14 +217,14 @@ export function buildAuthRegisterRouter(deps: RegisterRoutesDeps): Hono {
         tokenBytes,
       });
 
-      // Grant 3 free trial sessions as signup bonus — in the SAME
-      // transaction as user creation so it's atomic.
-      await appendLedgerEntry(client, {
+      // Credit the one-time signup bonus to the wallet — in the SAME
+      // transaction as user creation so it's atomic. Rs 50 lets a new user
+      // start interviewing immediately (billed per minute from the wallet).
+      await appendWalletEntry(client, {
         userId,
-        sessionDelta: 3,
-        lifetimeFlagSet: 'unchanged',
+        amountPaise: SIGNUP_BONUS_PAISE,
         reason: 'signup_bonus',
-        note: '3 free trial sessions (10 min each)',
+        note: 'Welcome bonus (Rs 50)',
       });
 
       await client.query('COMMIT');

@@ -2,15 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Header from '../components/Header';
 import Footer from '../components/Footer';
-import { listPacks } from '../api/client';
 import { DownloadContent } from './DownloadPage';
+import { isAuthSession } from '../api/client';
 
 export default function LandingPage() {
-  const [packs, setPacks] = useState<any[]>([]);
-
-  useEffect(() => {
-    listPacks().then(setPacks);
-  }, []);
 
   return (
     <>
@@ -21,7 +16,7 @@ export default function LandingPage() {
         <FeaturesSection />
         <HowItWorksSection />
         <DemoSection />
-        <PricingSection packs={packs} />
+        <PricingSection />
         <InvisibleSection />
         {/* <TestimonialsSection /> */}
         <section id="download" className="section">
@@ -39,6 +34,7 @@ export default function LandingPage() {
 
 /* ===== Hero ===== */
 function HeroSection() {
+  const authed = isAuthSession();
   const line1 = 'Ace Every Interview';
   const line2 = 'Before the Interviewer Finishes the Question';
   const fullLength = line1.length + line2.length;
@@ -78,11 +74,11 @@ function HeroSection() {
           <Link to="/download" className="btn btn-green btn-lg">
             Download Free
           </Link>
-          <Link to="/register" className="btn btn-outline btn-lg">
-            Get Started Online
+          <Link to={authed ? '/wallet' : '/register'} className="btn btn-outline btn-lg">
+            {authed ? 'Go to My Wallet' : 'Get Started Online'}
           </Link>
         </div>
-        <p style={hero.note}>Available for Windows & macOS. No credit card required for first 3 sessions.</p>
+        <p style={hero.note}>Available for Windows & macOS. ₹50 free wallet credit on signup — no credit card required.</p>
       </div>
     </section>
   );
@@ -316,7 +312,7 @@ const featuresGrid: Record<string, React.CSSProperties> = {
 function HowItWorksSection() {
   const steps = [
     { step: '01', title: 'Download & Install', desc: 'Get the app for Windows or macOS. One-click install, no configuration needed.' },
-    { step: '02', title: 'Create Account', desc: 'Register with your email. Get 3 free interview sessions on your Starter pack.' },
+    { step: '02', title: 'Create Account', desc: 'Register with your email. Get ₹50 free wallet credit to start — pay just ₹5/min after.' },
     { step: '03', title: 'Choose Your Mode', desc: 'Pick Manual, Passive, or Screen Analyzer based on the interview format.' },
     { step: '04', title: 'Get AI Answers', desc: 'The AI listens or reads your screen and delivers answers in under 2 seconds — invisible to the interviewer.' },
   ];
@@ -738,62 +734,54 @@ const demo: Record<string, React.CSSProperties> = {
 };
 
 /* ===== Pricing ===== */
-function PricingSection({ packs }: { packs: any[] }) {
-  const defaults = [
-    { slug: 'starter', name: 'Starter', desc: 'Perfect for first-time interview prep', sessions: '5 Sessions', mrp: 29900, price: 19900, lifetime: false, popular: false },
-    { slug: 'pro', name: 'Pro', desc: 'For serious job seekers', sessions: '20 Sessions', mrp: 99900, price: 69900, lifetime: false, popular: true },
-    { slug: 'lifetime', name: 'Lifetime', desc: 'One-time purchase. Unlimited forever.', sessions: 'Unlimited', mrp: 499900, price: 299900, lifetime: true, popular: false },
+function PricingSection() {
+  const authed = isAuthSession();
+  const RATE_PER_MINUTE = 5;
+  const SIGNUP_BONUS = 50;
+  const topups = [
+    { rupees: 100, popular: false },
+    { rupees: 300, popular: true },
+    { rupees: 500, popular: false },
   ];
-
-  const displayPacks = packs.length > 0
-    ? packs.map((p: any) => ({
-        slug: p.slug,
-        name: p.display_name || p.slug,
-        desc: p.lifetime ? 'One-time. Unlimited forever.' : p.session_count ? `${p.session_count} Sessions` : '',
-        sessions: p.lifetime ? 'Unlimited' : `${p.session_count || 5} Sessions`,
-        mrp: p.mrp || 29900,
-        price: p.effective_price || p.mrp || 29900,
-        lifetime: p.lifetime || false,
-        popular: p.slug === 'pro',
-        hasDiscount: p.effective_price && p.effective_price < p.mrp,
-      }))
-    : defaults;
 
   return (
     <section id="pricing" className="section" style={{ background: 'rgba(255,255,255,0.015)' }}>
       <div className="container" style={{ textAlign: 'center' as const }}>
         <span className="section-label">Pricing</span>
         <h2 className="section-title" style={{ maxWidth: 600, margin: '0 auto 16px' }}>
-          Pay Once. Use Forever.
+          Pay Only for the Minutes You Use
         </h2>
-        <p className="section-subtitle" style={{ margin: '0 auto 48px' }}>
-          No subscriptions. No recurring fees. Buy a pack of sessions and use them whenever you need.
+        <p className="section-subtitle" style={{ margin: '0 auto 40px' }}>
+          No subscriptions, no packs. A flat ₹{RATE_PER_MINUTE}/minute, charged only while an interview
+          session is running. New accounts get ₹{SIGNUP_BONUS} free to start.
         </p>
 
         <div style={pricingGrid.grid}>
-          {displayPacks.map((p: any) => (
-            <div key={p.slug} style={{ ...pricingGrid.card, ...(p.popular ? pricingGrid.cardPopular : {}) }}>
-              {p.popular && <div style={pricingGrid.popularBadge}>Most Popular</div>}
-              <h3 style={pricingGrid.name}>{p.name}</h3>
-              <p style={pricingGrid.sessions}>{p.sessions}</p>
-              <p style={pricingGrid.desc}>{p.desc}</p>
-              <div style={pricingGrid.priceRow}>
-                {p.hasDiscount ? (
-                  <>
-                    <span style={pricingGrid.mrpStrike}>₹{(p.mrp / 100).toLocaleString('en-IN')}</span>
-                    <span style={pricingGrid.price}>₹{(p.price / 100).toLocaleString('en-IN')}</span>
-                  </>
-                ) : (
-                  <span style={pricingGrid.price}>₹{(p.price / 100).toLocaleString('en-IN')}</span>
-                )}
+          {topups.map((t) => {
+            const minutes = Math.floor(t.rupees / RATE_PER_MINUTE);
+            return (
+              <div key={t.rupees} style={{ ...pricingGrid.card, ...(t.popular ? pricingGrid.cardPopular : {}) }}>
+                {t.popular && <div style={pricingGrid.popularBadge}>Most Popular</div>}
+                <h3 style={pricingGrid.name}>Top up ₹{t.rupees.toLocaleString('en-IN')}</h3>
+                <p style={pricingGrid.sessions}>{minutes} min</p>
+                <p style={pricingGrid.desc}>at ₹{RATE_PER_MINUTE}/minute · never expires</p>
+                <div style={pricingGrid.priceRow}>
+                  <span style={pricingGrid.price}>₹{t.rupees.toLocaleString('en-IN')}</span>
+                </div>
+                <Link
+                  to={`/pricing?amount=${t.rupees}`}
+                  className="btn btn-primary"
+                  style={{ width: '100%', marginTop: 20 }}
+                >
+                  {authed ? `Add ₹${t.rupees.toLocaleString('en-IN')}` : 'Get Started'}
+                </Link>
               </div>
-              {p.hasDiscount && <span style={pricingGrid.discount}>Welcome Offer — Save {Math.floor((p.mrp - p.price) / p.mrp * 100)}%</span>}
-              <Link to="/register" className="btn btn-primary" style={{ width: '100%', marginTop: 20 }}>
-                Get Started
-              </Link>
-            </div>
-          ))}
+            );
+          })}
         </div>
+        <p style={{ fontSize: 13, color: '#64748b', marginTop: 24 }}>
+          Each started minute is rounded up. Sessions stop automatically when your wallet runs out.
+        </p>
       </div>
     </section>
   );
@@ -943,6 +931,7 @@ const faq: Record<string, React.CSSProperties> = {
 
 /* ===== CTA ===== */
 function CTASection() {
+  const authed = isAuthSession();
   return (
     <section className="section">
       <div style={{ maxWidth: 700, margin: '0 auto', textAlign: 'center' as const, padding: '0 24px' }}>
@@ -955,7 +944,9 @@ function CTASection() {
           </p>
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' as const }}>
             <Link to="/download" className="btn btn-green btn-lg">Download Now</Link>
-            <Link to="/register" className="btn btn-outline btn-lg">Create Free Account</Link>
+            <Link to={authed ? '/wallet' : '/register'} className="btn btn-outline btn-lg">
+              {authed ? 'Go to My Wallet' : 'Create Free Account'}
+            </Link>
           </div>
         </div>
       </div>

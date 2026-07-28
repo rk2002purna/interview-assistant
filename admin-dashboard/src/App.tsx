@@ -6,7 +6,6 @@ import UsersListPage from './pages/UsersListPage';
 import UserDetailPage from './pages/UserDetailPage';
 import AuditLogPage from './pages/AuditLogPage';
 import PacksPage from './pages/PacksPage';
-import WelcomeOfferPage from './pages/WelcomeOfferPage';
 import RateLimitsPage from './pages/RateLimitsPage';
 import ProviderKeysPage from './pages/ProviderKeysPage';
 import ModelRoutingPage from './pages/ModelRoutingPage';
@@ -28,7 +27,6 @@ export default function App() {
       <Route path="/users/:id" element={<ProtectedRoute><UserDetailPage /></ProtectedRoute>} />
       <Route path="/audit-log" element={<ProtectedRoute><AuditLogPage /></ProtectedRoute>} />
       <Route path="/packs" element={<ProtectedRoute><PacksPage /></ProtectedRoute>} />
-      <Route path="/welcome-offer" element={<ProtectedRoute><WelcomeOfferPage /></ProtectedRoute>} />
       <Route path="/rate-limits" element={<ProtectedRoute><RateLimitsPage /></ProtectedRoute>} />
       <Route path="/provider-keys" element={<ProtectedRoute><ProviderKeysPage /></ProtectedRoute>} />
       <Route path="/model-routing" element={<ProtectedRoute><ModelRoutingPage /></ProtectedRoute>} />

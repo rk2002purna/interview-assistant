@@ -1,104 +1,275 @@
-import { useSearchParams } from 'react-router-dom';
-import { isAuthSession } from '../api/client';
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import {
+  isAuthSession,
+  getDisplayName,
+  getWallet,
+  createWalletTopup,
+  verifyPayment,
+  ApiClientError,
+} from '../api/client';
 import Header from '../components/Header';
 import Footer from '../components/Footer';
 
-const PACK_DETAILS: Record<string, { name: string; sessions: string; price: number }> = {
-  starter: { name: 'Starter', sessions: '5', price: 199 },
-  pro: { name: 'Pro', sessions: '20', price: 699 },
-  lifetime: { name: 'Lifetime', sessions: 'Unlimited', price: 2999 },
-};
-
-const UPI_ID = 'myibl7842-1@indie';
-const GOOGLE_FORM_URL = 'https://forms.gle/iFwBLLLHFX9dHfyt7';
+const RATE_PER_MINUTE = 5;
+const MIN_TOPUP = 1;
+const MAX_TOPUP = 100000;
+const DEFAULT_TOPUP = 300;
+const PRESETS = [100, 300, 500, 1000];
+const RAZORPAY_SCRIPT = 'https://checkout.razorpay.com/v1/checkout.js';
 const SUPPORT_EMAIL = 'upnodsupport@gmail.com';
 
-export default function CheckoutPage() {
-  const [searchParams] = useSearchParams();
-  const packSlug = searchParams.get('pack') || 'pro';
-  const pack: { name: string; sessions: string; price: number } = PACK_DETAILS[packSlug] ?? PACK_DETAILS.pro!;
+/** Parse and clamp the ?amount= query (rupees) to a valid top-up amount. */
+function parseAmount(raw: string | null): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || !Number.isInteger(n)) return DEFAULT_TOPUP;
+  if (n < MIN_TOPUP) return MIN_TOPUP;
+  if (n > MAX_TOPUP) return MAX_TOPUP;
+  return n;
+}
 
-  if (!isAuthSession()) {
-    const redirect = `/checkout?pack=${encodeURIComponent(packSlug)}`;
-    window.location.href = `/login?redirect=${encodeURIComponent(redirect)}`;
-    return null;
+/** Inject the Razorpay Checkout script once; resolve when it's ready. */
+function loadRazorpayScript(): Promise<boolean> {
+  return new Promise((resolve) => {
+    if ((window as any).Razorpay) {
+      resolve(true);
+      return;
+    }
+    const existing = document.querySelector(`script[src="${RAZORPAY_SCRIPT}"]`);
+    if (existing) {
+      existing.addEventListener('load', () => resolve(true));
+      existing.addEventListener('error', () => resolve(false));
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = RAZORPAY_SCRIPT;
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+}
+
+type Status = 'idle' | 'creating' | 'checkout' | 'verifying' | 'done';
+
+export default function CheckoutPage() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // Amount is a free-form, editable value (in rupees). Seeded from the
+  // ?amount= query when present, then fully customizable on this page.
+  const [amountText, setAmountText] = useState<string>(
+    () => String(parseAmount(searchParams.get('amount'))),
+  );
+  const amount = Number(amountText);
+  const amountValid =
+    Number.isInteger(amount) && amount >= MIN_TOPUP && amount <= MAX_TOPUP;
+  const minutes = amountValid ? Math.floor(amount / RATE_PER_MINUTE) : 0;
+
+  const [status, setStatus] = useState<Status>('idle');
+  const [error, setError] = useState('');
+  const baselineBalance = useRef<number>(0);
+  const authed = isAuthSession();
+
+  useEffect(() => {
+    // Warm up the Razorpay script and capture the pre-payment balance.
+    loadRazorpayScript();
+    getWallet().then((w) => {
+      if (w) baselineBalance.current = w.balance_paise;
+    });
+  }, []);
+
+  // Poll the wallet until the webhook credits it (or the window elapses).
+  async function pollWalletCredited(tries = 12): Promise<boolean> {
+    for (let i = 0; i < tries; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const w = await getWallet();
+      if (w && w.balance_paise > baselineBalance.current) return true;
+    }
+    return false;
   }
+
+  async function handlePay() {
+    setError('');
+
+    if (!amountValid) {
+      setError(
+        `Enter a whole amount between ₹${MIN_TOPUP} and ₹${MAX_TOPUP.toLocaleString('en-IN')}.`,
+      );
+      return;
+    }
+
+    // Guests create an account first (₹50 signup bonus), then return here
+    // with the same amount preserved.
+    if (!authed) {
+      const redirect = `/pricing?amount=${encodeURIComponent(String(amount))}`;
+      window.location.href = `/register?redirect=${encodeURIComponent(redirect)}`;
+      return;
+    }
+
+    setStatus('creating');
+
+    let order;
+    try {
+      order = await createWalletTopup(amount * 100);
+    } catch (err) {
+      setStatus('idle');
+      if (err instanceof ApiClientError) {
+        setError(
+          err.status === 404
+            ? 'Online payments are not enabled yet. Please contact support.'
+            : err.message,
+        );
+      } else {
+        setError('Could not start checkout. Please try again.');
+      }
+      return;
+    }
+
+    const ready = await loadRazorpayScript();
+    if (!ready || !(window as any).Razorpay) {
+      setStatus('idle');
+      setError('Could not load the payment window. Check your connection and try again.');
+      return;
+    }
+
+    const displayName = getDisplayName();
+    const options: Record<string, unknown> = {
+      key: order.key_id,
+      order_id: order.order_id,
+      amount: order.amount,
+      currency: order.currency,
+      name: 'UpNod',
+      description: `Wallet top-up ₹${amount.toLocaleString('en-IN')}`,
+      theme: { color: '#22c55e' },
+      prefill: displayName ? { name: displayName } : {},
+      handler: async (resp: {
+        razorpay_order_id?: string;
+        razorpay_payment_id?: string;
+        razorpay_signature?: string;
+      }) => {
+        setStatus('verifying');
+        // Verify the signature server-side, which credits the wallet instantly.
+        try {
+          const res = await verifyPayment({
+            razorpay_order_id: resp.razorpay_order_id ?? '',
+            razorpay_payment_id: resp.razorpay_payment_id ?? '',
+            razorpay_signature: resp.razorpay_signature ?? '',
+          });
+          if (res.verified) {
+            setStatus('done');
+            navigate('/wallet');
+            return;
+          }
+        } catch {
+          // Verification failed or unreachable — fall back to the webhook,
+          // which credits the wallet independently. Poll until it lands.
+        }
+        await pollWalletCredited();
+        setStatus('done');
+        navigate('/wallet');
+      },
+      modal: {
+        ondismiss: () => {
+          setStatus('idle');
+          setError('Payment window closed before completing. You can try again.');
+        },
+      },
+    };
+
+    const rzp = new (window as any).Razorpay(options);
+    rzp.on('payment.failed', () => {
+      setStatus('idle');
+      setError('Payment failed. No money was deducted — please try again.');
+    });
+    setStatus('checkout');
+    rzp.open();
+  }
+
+  const busy = status === 'creating' || status === 'checkout' || status === 'verifying';
 
   return (
     <>
       <Header />
       <main style={styles.wrapper}>
         <div style={styles.card}>
-          <h2 style={styles.title}>Complete Your Payment</h2>
-
-          {/* Pack summary */}
-          <div style={styles.packBadge}>
-            <span style={styles.packName}>{pack.name} Pack</span>
-            <span style={styles.packSessions}>{pack.sessions} Sessions</span>
-          </div>
-          <p style={styles.price}>₹{pack.price}</p>
-          <p style={styles.priceLabel}>One-time payment</p>
-
-          <div style={styles.divider} />
-
-          {/* QR Code */}
-          <div style={styles.qrWrapper}>
-            <img
-              src="/upi-qr.jpeg"
-              alt="UPI QR Code"
-              style={styles.qrImage}
-              onError={(e) => {
-                const el = e.currentTarget;
-                el.style.display = 'none';
-                const placeholder = document.getElementById('qr-placeholder');
-                if (placeholder) placeholder.style.display = 'flex';
-              }}
-            />
-            <div id="qr-placeholder" style={{ ...styles.qrImage, display: 'none', alignItems: 'center', justifyContent: 'center', background: '#e2e8f0', color: '#0a0e17', fontSize: 13, fontWeight: 600, flexDirection: 'column', gap: 4 }}>
-              <span>QR Code</span>
-              <span style={{ fontSize: 11, fontWeight: 400 }}>Add upi-qr.png to web-app/public/</span>
-            </div>
-          </div>
-          <p style={styles.qrHint}>Scan this QR code with any UPI app</p>
-
-          {/* UPI ID */}
-          <div style={styles.upiBox}>
-            <span style={styles.upiLabel}>UPI ID</span>
-            <span style={styles.upiId}>{UPI_ID}</span>
-          </div>
-          <button
-            style={styles.copyBtn}
-            onClick={() => {
-              navigator.clipboard.writeText(UPI_ID).catch(() => {});
-              const btn = document.getElementById('copy-btn');
-              if (btn) { btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = 'Copy UPI ID'; }, 2000); }
-            }}
-            id="copy-btn"
-          >
-            Copy UPI ID
-          </button>
-
-          <div style={styles.divider} />
-
-          {/* Steps */}
-          <ol style={styles.steps}>
-            <li>Send <strong>₹{pack.price}</strong> to the UPI ID above or scan the QR code</li>
-            <li>Take a screenshot of your payment confirmation</li>
-            <li>Fill out the form below with your payment details</li>
-          </ol>
-
-          <a href={GOOGLE_FORM_URL} target="_blank" rel="noopener noreferrer" style={styles.formBtn}>
-            Submit Payment Details &amp; Screenshot
-          </a>
-          <p style={styles.formHint}>
-            After submitting, we'll verify your payment within 24 hours and add sessions to your account.
+          <h2 style={styles.title}>Top up your wallet</h2>
+          <p style={styles.subtitle}>
+            Pay-as-you-go · ₹{RATE_PER_MINUTE}/min · ₹50 free on signup · credits never expire
           </p>
+
+          <div style={styles.badgeRow}>
+            <span style={styles.badge}>Wallet Top-up</span>
+            <span style={styles.badgeMuted}>≈ {minutes} min</span>
+          </div>
+
+          <label htmlFor="topup-amount" style={styles.inputLabel}>Enter amount to add</label>
+          <div style={styles.amountInputWrap}>
+            <span style={styles.rupee}>₹</span>
+            <input
+              id="topup-amount"
+              type="number"
+              inputMode="numeric"
+              min={MIN_TOPUP}
+              max={MAX_TOPUP}
+              step={1}
+              value={amountText}
+              onChange={(e) => setAmountText(e.target.value)}
+              disabled={busy}
+              placeholder={String(DEFAULT_TOPUP)}
+              aria-label="Top-up amount in rupees"
+              style={styles.amountInput}
+            />
+          </div>
+          <p style={styles.priceLabel}>
+            {amountValid
+              ? `≈ ${minutes} minute${minutes === 1 ? '' : 's'} · ₹${RATE_PER_MINUTE}/min · never expires`
+              : `Enter a whole amount from ₹${MIN_TOPUP} to ₹${MAX_TOPUP.toLocaleString('en-IN')}`}
+          </p>
+
+          <div style={styles.presetRow}>
+            {PRESETS.map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setAmountText(String(p))}
+                disabled={busy}
+                style={{ ...styles.presetChip, ...(amount === p ? styles.presetChipActive : {}) }}
+              >
+                ₹{p.toLocaleString('en-IN')}
+              </button>
+            ))}
+          </div>
+
+          <div style={styles.divider} />
+
+          {error && <div role="alert" style={styles.error}>{error}</div>}
+
+          {status === 'verifying' ? (
+            <div style={styles.info}>
+              Payment received. Updating your wallet…
+            </div>
+          ) : (
+            <button onClick={handlePay} disabled={busy || !amountValid} className="btn btn-primary" style={{ width: '100%' }}>
+              {status === 'creating'
+                ? 'Starting…'
+                : status === 'checkout'
+                ? 'Opening payment…'
+                : !amountValid
+                ? 'Enter an amount'
+                : authed
+                ? `Pay ₹${amount.toLocaleString('en-IN')} with UPI / Card`
+                : `Get Started — Add ₹${amount.toLocaleString('en-IN')}`}
+            </button>
+          )}
+
+          <p style={styles.secure}>🔒 Secure payment via Razorpay · UPI, cards, net-banking</p>
 
           <div style={styles.divider} />
 
           <p style={styles.contact}>
-            Questions? Contact us at{' '}
-            <a href={`mailto:${SUPPORT_EMAIL}`} style={styles.emailLink}>{SUPPORT_EMAIL}</a>
+            Type any amount above — from ₹{MIN_TOPUP} up. Credits are added to your wallet instantly.
+          </p>
+          <p style={styles.contactSmall}>
+            Need help? <a href={`mailto:${SUPPORT_EMAIL}`} style={styles.emailLink}>{SUPPORT_EMAIL}</a>
           </p>
         </div>
       </main>
@@ -109,112 +280,60 @@ export default function CheckoutPage() {
 
 const styles: Record<string, React.CSSProperties> = {
   wrapper: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: '100vh',
-    padding: '100px 24px 60px',
-    background: '#0a0e17',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    minHeight: '100vh', padding: '100px 24px 60px', background: '#0a0e17',
   },
   card: {
-    background: 'rgba(255, 255, 255, 0.03)',
-    border: '1px solid rgba(99, 179, 237, 0.12)',
-    borderRadius: 16,
-    padding: '40px 32px',
-    width: '100%',
-    maxWidth: 440,
-    textAlign: 'center',
-    backdropFilter: 'blur(8px)',
+    background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(99, 179, 237, 0.12)',
+    borderRadius: 16, padding: '40px 32px', width: '100%', maxWidth: 440,
+    textAlign: 'center', backdropFilter: 'blur(8px)',
   },
-  title: { fontSize: 22, fontWeight: 700, color: '#f1f5f9', marginBottom: 20 },
-  packBadge: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    marginBottom: 8,
+  title: { fontSize: 22, fontWeight: 700, color: '#f1f5f9', marginBottom: 6 },
+  subtitle: { fontSize: 13, color: '#94a3b8', marginBottom: 20, lineHeight: 1.5 },
+  badgeRow: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 8 },
+  badge: {
+    background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)', color: '#93c5fd',
+    padding: '4px 12px', borderRadius: 100, fontSize: 13, fontWeight: 600,
   },
-  packName: {
-    background: 'rgba(59,130,246,0.15)',
-    border: '1px solid rgba(59,130,246,0.3)',
-    color: '#93c5fd',
-    padding: '4px 12px',
-    borderRadius: 100,
-    fontSize: 13,
-    fontWeight: 600,
-    textTransform: 'capitalize',
+  badgeMuted: {
+    background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)', color: '#86efac',
+    padding: '4px 12px', borderRadius: 100, fontSize: 13, fontWeight: 500,
   },
-  packSessions: {
-    background: 'rgba(34,197,94,0.1)',
-    border: '1px solid rgba(34,197,94,0.2)',
-    color: '#86efac',
-    padding: '4px 12px',
-    borderRadius: 100,
-    fontSize: 13,
-    fontWeight: 500,
+  priceLabel: { fontSize: 13, color: '#64748b', marginTop: 10 },
+  inputLabel: { display: 'block', fontSize: 13, color: '#94a3b8', marginBottom: 8, textAlign: 'left' },
+  amountInputWrap: {
+    display: 'flex', alignItems: 'center', gap: 6,
+    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(99,179,237,0.25)',
+    borderRadius: 12, padding: '10px 16px',
   },
-  price: { fontSize: '2.8rem', fontWeight: 800, color: '#22c55e', margin: 0 },
-  priceLabel: { fontSize: 13, color: '#64748b', marginTop: 2 },
-
+  rupee: { fontSize: '1.8rem', fontWeight: 800, color: '#22c55e' },
+  amountInput: {
+    flex: 1, width: '100%', minWidth: 0, background: 'transparent', border: 'none',
+    outline: 'none', color: '#f1f5f9', fontSize: '2rem', fontWeight: 800,
+  },
+  presetRow: { display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 14, justifyContent: 'center' },
+  presetChip: {
+    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)',
+    color: '#cbd5e1', borderRadius: 100, padding: '6px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+  },
+  presetChipActive: {
+    background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.5)', color: '#86efac',
+  },
   divider: { height: 1, background: 'rgba(255,255,255,0.06)', margin: '24px 0' },
-
-  qrWrapper: {
-    display: 'inline-block',
-    padding: 16,
-    background: '#fff',
-    borderRadius: 12,
-    marginBottom: 12,
+  error: {
+    background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)',
+    color: '#fca5a5', padding: '10px 14px', borderRadius: 8, fontSize: 13, marginBottom: 16,
   },
-  qrImage: { width: 200, height: 200, display: 'block' },
-  qrHint: { fontSize: 13, color: '#94a3b8', marginBottom: 20 },
-
-  upiBox: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 4,
-    background: 'rgba(255,255,255,0.04)',
-    border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: 10,
-    padding: '14px 20px',
-    marginBottom: 12,
+  info: {
+    background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)',
+    color: '#93c5fd', padding: '12px 14px', borderRadius: 8, fontSize: 14,
   },
-  upiLabel: { fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: 1 },
-  upiId: { fontSize: 17, fontWeight: 700, color: '#f1f5f9', fontFamily: 'monospace', userSelect: 'all' },
-
-  copyBtn: {
-    padding: '8px 20px',
-    background: 'rgba(59,130,246,0.12)',
-    border: '1px solid rgba(59,130,246,0.25)',
-    color: '#93c5fd',
-    borderRadius: 8,
-    fontSize: 13,
-    fontWeight: 500,
-    cursor: 'pointer',
+  secure: { fontSize: 12, color: '#64748b', marginTop: 14 },
+  contact: { fontSize: 13, color: '#94a3b8' },
+  contactSmall: { fontSize: 12, color: '#64748b', marginTop: 6 },
+  linkBtn: {
+    background: 'none', border: 'none', color: '#60a5fa', cursor: 'pointer',
+    fontSize: 13, padding: 0, textDecoration: 'underline',
   },
-
-  steps: {
-    textAlign: 'left',
-    color: '#94a3b8',
-    fontSize: 14,
-    lineHeight: 2,
-    paddingLeft: 20,
-    marginBottom: 20,
-  },
-
-  formBtn: {
-    display: 'inline-block',
-    padding: '14px 28px',
-    background: 'linear-gradient(135deg, #22c55e, #16a34a)',
-    color: '#fff',
-    borderRadius: 10,
-    fontSize: 15,
-    fontWeight: 700,
-    textDecoration: 'none',
-    boxShadow: '0 2px 20px rgba(34,197,94,0.3)',
-    marginBottom: 12,
-  },
-  formHint: { fontSize: 12, color: '#64748b', lineHeight: 1.6 },
-
-  contact: { fontSize: 13, color: '#64748b' },
   emailLink: { color: '#60a5fa', textDecoration: 'none' },
 };

@@ -222,7 +222,7 @@
   <!-- Session CTA: visible when no session is active -->
   <div id="session-cta" class="hidden">
     <button id="start-session-btn" onclick="startSession()">&#9654; Start Interview Session</button>
-    <div class="cta-subtitle" id="cta-subtitle">3 free 10-min trial sessions — then 90-min paid sessions</div>
+    <div class="cta-subtitle" id="cta-subtitle">Pay as you go — ₹5/min from your wallet. ₹50 free on signup.</div>
     <div id="packs-container" class="hidden"></div>
   </div>
   <!-- Session extension pop-up -->
@@ -328,6 +328,9 @@ let sessionTimerInterval = null;
 let sessionRemainingSeconds = 0;
 let sessionWarning = false;
 let sessionIsTrial = false;
+let currentSessionId = null;      // active interview session id (for heartbeat)
+let walletHeartbeatTimer = null;  // per-minute billing heartbeat interval
+let walletBalancePaise = 0;       // last-known wallet balance
 let extendPopupDismissed = false; // reset when session changes
 let extendPopupShown = false;
 const EXTEND_WARNING_SECONDS = 300; // show pop-up when 5 min remaining
@@ -354,8 +357,8 @@ async function init() {
   if (window.interviewAssistantApi && window.interviewAssistantApi.session) {
     window.interviewAssistantApi.session.onStateChanged(handleSessionStateChanged);
   }
-  // Load packs for the CTA
-  loadPacks();
+  // Load wallet balance for the CTA
+  loadWallet();
 }
 
 async function reloadConfig() {
@@ -426,19 +429,19 @@ function handleSessionStateChanged(state) {
     cta.classList.add('hidden');
     modeBar.classList.remove('hidden');
     updateSessionTimer();
-    // Show TRIAL / SESSION label in the badge
-    var typeLabel = document.getElementById('session-type-label');
-    if (typeLabel) typeLabel.textContent = sessionIsTrial ? 'Trial' : 'Session';
-
-    // Show extension pop-up for paid sessions when warning triggers
-    if (sessionWarning && !sessionIsTrial && !extendPopupDismissed && !extendPopupShown) {
-      showExtendPopup();
-    }
+    if (state.session_id) currentSessionId = state.session_id;
+    startWalletHeartbeat();
+    // Show the logged-in user's live wallet balance in the badge.
+    loadWallet();
+    updateSessionWalletLabel();
   } else {
     badge.classList.add('hidden');
     cta.classList.remove('hidden');
     modeBar.classList.add('hidden');
     dismissExtendPopup();
+    currentSessionId = null;
+    stopWalletHeartbeat();
+    loadWallet();
     // Stop any active modes when session ends
     if (isListening) stopAllAudio();
     if (currentMode === 'passive' || passiveStream || passiveRecorder || passiveManualRecording) stopPassiveMode(true);
@@ -461,13 +464,21 @@ async function startSession() {
     if (window.interviewAssistantApi && window.interviewAssistantApi.session) {
       var result = await window.interviewAssistantApi.session.start();
       if (result && result.error) {
-        if (result.error.code === 'no_sessions_remaining') {
-          // Show packs for purchase
+        if (result.error.code === 'insufficient_balance' || result.error.code === 'no_sessions_remaining') {
+          // Wallet balance too low to start — show balance + recharge.
+          await loadWallet();
           document.getElementById('packs-container').classList.remove('hidden');
-          document.getElementById('answer-text').textContent = 'No sessions remaining. Purchase a pack to continue.';
+          document.getElementById('answer-text').textContent =
+            'Your wallet balance is too low to start an interview. Recharge your wallet (\u20B95/min) to continue.';
         } else {
           document.getElementById('answer-text').textContent = 'Could not start session: ' + (result.error.message || result.error.code);
         }
+      } else {
+        // Started — capture the session id, sync state, begin the billing heartbeat.
+        if (result && result.session_id) currentSessionId = result.session_id;
+        if (result && typeof result.balance_paise === 'number') walletBalancePaise = result.balance_paise;
+        await syncSessionState();
+        startWalletHeartbeat();
       }
     }
   } catch (e) {
@@ -574,7 +585,92 @@ function dismissExtendPopup() {
   document.querySelector('#extend-popup .btn-dismiss').textContent = 'Dismiss';
 }
 
-// ===== PACK RENDERING =====
+// ===== WALLET (per-minute billing) =====
+async function loadWallet() {
+  try {
+    if (window.interviewAssistantApi && window.interviewAssistantApi.wallet) {
+      var w = await window.interviewAssistantApi.wallet.get();
+      if (w && !w.error && typeof w.balance_paise === 'number') {
+        walletBalancePaise = w.balance_paise;
+        renderWalletCta(w.balance_paise, w.rate_per_minute_paise || 500);
+        if (sessionActive) updateSessionWalletLabel();
+        return w.balance_paise;
+      }
+    }
+  } catch (e) { /* retry on next state change */ }
+  return null;
+}
+
+function formatRupees(paise) {
+  return '\u20B9' + (paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// Show the logged-in user's live wallet balance in the active-session badge.
+function updateSessionWalletLabel() {
+  var typeLabel = document.getElementById('session-type-label');
+  if (typeLabel) typeLabel.textContent = formatRupees(walletBalancePaise) + ' left';
+}
+
+function renderWalletCta(balancePaise, ratePaise) {
+  var rate = ratePaise || 500;
+  var minutes = Math.floor(balancePaise / rate);
+  var subtitle = document.getElementById('cta-subtitle');
+  if (subtitle) {
+    subtitle.innerHTML = 'Wallet: <strong>' + formatRupees(balancePaise) + '</strong> \u00B7 ~' +
+      minutes + ' min at \u20B9' + (rate / 100) + '/min';
+  }
+  var container = document.getElementById('packs-container');
+  if (container) {
+    container.classList.remove('hidden');
+    container.innerHTML =
+      '<div class="pack-card" onclick="rechargeWallet()">' +
+      '<div class="pack-name">Recharge Wallet</div>' +
+      '<div class="pack-sessions">' + formatRupees(balancePaise) + '</div>' +
+      '<div class="pack-offer-label">Add money</div>' +
+      '</div>';
+  }
+}
+
+function rechargeWallet() {
+  ipcRenderer.send('open-external-url', 'https://upnod.referconnect.in/pricing');
+}
+
+// Per-minute billing heartbeat: while a session is active, tell the backend to
+// bill each elapsed minute. Charging is idempotent per elapsed minute on the
+// server, so repeated/duplicate heartbeats never overcharge. When the wallet is
+// exhausted the backend ends the session and returns active:false.
+function startWalletHeartbeat() {
+  if (walletHeartbeatTimer) return; // already running
+  if (!currentSessionId) return;
+  walletHeartbeatTimer = setInterval(sendWalletHeartbeat, 60000);
+}
+
+function stopWalletHeartbeat() {
+  if (walletHeartbeatTimer) { clearInterval(walletHeartbeatTimer); walletHeartbeatTimer = null; }
+}
+
+async function sendWalletHeartbeat() {
+  if (!sessionActive || !currentSessionId) { stopWalletHeartbeat(); return; }
+  try {
+    if (!(window.interviewAssistantApi && window.interviewAssistantApi.session && window.interviewAssistantApi.session.heartbeat)) return;
+    var res = await window.interviewAssistantApi.session.heartbeat(currentSessionId);
+    if (res && typeof res.balance_paise === 'number') {
+      walletBalancePaise = res.balance_paise;
+      updateSessionWalletLabel();
+    }
+    if (res && res.active === false) {
+      // Wallet exhausted — the backend already ended the session.
+      stopWalletHeartbeat();
+      handleSessionStateChanged({ active: false, session_id: null, remaining_seconds: 0, warning: false, is_trial: false });
+      setStatus('Wallet empty — session ended. Recharge to continue.');
+      document.getElementById('answer-text').textContent =
+        'Your wallet ran out of balance, so the interview session ended. Recharge your wallet to start again.';
+      loadWallet();
+    }
+  } catch (e) { /* transient; try again next tick */ }
+}
+
+// ===== PACK RENDERING (legacy; retained but unused under the wallet model) =====
 async function loadPacks() {
   try {
     if (window.interviewAssistantApi && window.interviewAssistantApi.purchase) {

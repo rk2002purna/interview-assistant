@@ -16,6 +16,7 @@ import { buildCheckoutRouter } from './billing/checkout-routes.js';
 import { buildWebhookRouter } from './billing/webhook-routes.js';
 import type { RazorpayClient } from './billing/razorpay-client.js';
 import { buildEntitlementRouter } from './entitlement/routes.js';
+import { buildWalletRouter } from './wallet/routes.js';
 import { buildPacksRouter } from './packs/routes.js';
 import { buildSessionsRouter } from './sessions/routes.js';
 import { buildUsageRouter } from './usage/routes.js';
@@ -46,6 +47,8 @@ export interface BuildAppDeps {
   readonly razorpayClient?: RazorpayClient;
   /** Razorpay key_id returned to clients for frontend checkout. */
   readonly razorpayKeyId?: string;
+  /** Razorpay key secret for payment signature verification (never sent to clients). */
+  readonly razorpayKeySecret?: string;
   /** Razorpay webhook secret for signature verification. */
   readonly razorpayWebhookSecret?: string;
   /** Storage quota gate for blob persistence (R15.3). */
@@ -187,11 +190,17 @@ export function buildApp(deps: BuildAppDeps = {}): Hono {
     });
     app.route('/', authRefreshRouter);
 
-    // Entitlement routes (R6.4: GET /me/entitlement).
+    // Entitlement routes (legacy; retained for read compatibility).
     const entitlementRouter = buildEntitlementRouter({
       pool: deps.pool,
     });
     app.route('/', entitlementRouter);
+
+    // Wallet routes (GET /me/wallet) — per-minute billing balance.
+    const walletRouter = buildWalletRouter({
+      pool: deps.pool,
+    });
+    app.route('/', walletRouter);
 
     // Session routes (R8.1, R8.2, R8.3: POST /sessions/start).
     const sessionsRouter = buildSessionsRouter({
@@ -206,6 +215,7 @@ export function buildApp(deps: BuildAppDeps = {}): Hono {
         pool: deps.pool,
         razorpayClient: deps.razorpayClient,
         razorpayKeyId: deps.razorpayKeyId,
+        ...(deps.razorpayKeySecret ? { razorpayKeySecret: deps.razorpayKeySecret } : {}),
         ...(deps.now ? { now: deps.now } : {}),
       });
       app.route('/', checkoutRouter);
