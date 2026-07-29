@@ -43,12 +43,20 @@ export function buildResendEmailSenders(deps: ResendEmailSenderDeps): {
     const { Resend } = await import('resend');
     const resend = new Resend(deps.apiKey);
 
-    await resend.emails.send({
+    const result = await resend.emails.send({
       from: deps.from,
       to: [email],
       subject: 'Verify your email — UpNod',
       html: verificationHtml(verifyUrl),
     });
+    // Resend returns { data, error } and does NOT throw on API failures
+    // (quota exceeded, unverified domain, etc.). Surface it so the caller's
+    // logger records the real reason instead of silently "succeeding".
+    if (result.error) {
+      throw new Error(
+        `Resend rejected verification email: ${result.error.name ?? 'error'} — ${result.error.message ?? JSON.stringify(result.error)}`,
+      );
+    }
   };
 
   const sendPasswordResetEmail: PasswordResetEmailSender = async ({ email, token, userId }) => {
@@ -57,12 +65,20 @@ export function buildResendEmailSenders(deps: ResendEmailSenderDeps): {
     const { Resend } = await import('resend');
     const resend = new Resend(deps.apiKey);
 
-    await resend.emails.send({
+    const result = await resend.emails.send({
       from: deps.from,
       to: [email],
       subject: 'Reset your password — UpNod',
       html: passwordResetHtml(resetUrl),
     });
+    // Surface Resend API errors (quota exceeded, unverified domain, etc.) so
+    // the caller's logger records the real reason instead of silently
+    // reporting success while no email is delivered.
+    if (result.error) {
+      throw new Error(
+        `Resend rejected password reset email: ${result.error.name ?? 'error'} — ${result.error.message ?? JSON.stringify(result.error)}`,
+      );
+    }
   };
 
   return { sendVerificationEmail, sendPasswordResetEmail };
