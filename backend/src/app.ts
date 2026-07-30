@@ -6,10 +6,12 @@ import { buildAdminPacksRouter } from './admin/packs-routes.js';
 import { buildAdminProviderKeysRouter } from './admin/provider-keys-routes.js';
 import { buildAdminRateLimitsRouter } from './admin/rate-limits-routes.js';
 import { buildModelRoutingRouter } from './admin/model-routing-routes.js';
+import { buildSttConfigRouter } from './admin/stt-config-routes.js';
 import { buildAdminUsersRouter } from './admin/users-routes.js';
 import { buildAdminWelcomeOfferRouter } from './admin/welcome-offer-routes.js';
 import { buildAuthRefreshRouter } from './auth/refresh-routes.js';
 import { buildAuthLoginRouter } from './auth/login-routes.js';
+import { buildAuthGoogleRouter } from './auth/google-routes.js';
 import { buildAuthRegisterRouter } from './auth/register-routes.js';
 import { buildPasswordResetRouter } from './auth/password-reset-routes.js';
 import { buildCheckoutRouter } from './billing/checkout-routes.js';
@@ -148,6 +150,12 @@ export function buildApp(deps: BuildAppDeps = {}): Hono {
     });
     app.route('/', modelRoutingRouter);
 
+    // Speech-to-Text model config (admin write + public read for desktop clients).
+    const sttConfigRouter = buildSttConfigRouter({
+      pool: deps.pool,
+    });
+    app.route('/', sttConfigRouter);
+
     // Admin Audit Log routes (R14.4).
     const adminAuditLogRouter = buildAdminAuditLogRouter({
       pool: deps.pool,
@@ -176,6 +184,13 @@ export function buildApp(deps: BuildAppDeps = {}): Hono {
       ...(deps.now ? { now: deps.now } : {}),
     });
     app.route('/', authLoginRouter);
+
+    // Google OAuth sign-in (verify Google ID token, issue app tokens).
+    const authGoogleRouter = buildAuthGoogleRouter({
+      pool: deps.pool,
+      ...(deps.now ? { now: deps.now } : {}),
+    });
+    app.route('/', authGoogleRouter);
 
     // Auth refresh and logout routes (R1.6, R1.7, R1.10, R13.5).
     const authRefreshRouter = buildAuthRefreshRouter({

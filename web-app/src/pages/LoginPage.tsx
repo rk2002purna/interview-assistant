@@ -1,8 +1,9 @@
 import { useState, useEffect, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { login, isAuthSession, getStoredTokens } from '../api/client';
+import { login, loginWithGoogle, isAuthSession, getStoredTokens } from '../api/client';
 import Header from '../components/Header';
 import Footer from '../components/Footer';
+import GoogleSignInButton from '../components/GoogleSignInButton';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -51,6 +52,32 @@ export default function LoginPage() {
     }
   }
 
+  // Completes sign-in after the browser reaches an authenticated state.
+  // For the desktop app we hand tokens back through the custom protocol URL
+  // the Electron app already listens for; otherwise we do a normal redirect.
+  function completeAuthRedirect() {
+    if (fromDesktop) {
+      // Desktop app OAuth flow — CallbackPage hands tokens back to the
+      // Electron app via the interview-assistant:// protocol.
+      window.location.href = `/callback?redirect=${encodeURIComponent(redirectTo)}`;
+    } else {
+      // Full page reload so Header picks up the new auth state
+      window.location.href = redirectTo;
+    }
+  }
+
+  async function handleGoogleCredential(idToken: string) {
+    setError('');
+    setLoading(true);
+    const result = await loginWithGoogle(idToken);
+    if (result.success) {
+      completeAuthRedirect();
+    } else {
+      setError(result.error);
+      setLoading(false);
+    }
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError('');
@@ -58,13 +85,7 @@ export default function LoginPage() {
 
     const result = await login(email, password);
     if (result.success) {
-      if (fromDesktop) {
-        // For desktop app OAuth flow — redirect to callback
-        window.location.href = `/callback?redirect=${encodeURIComponent(redirectTo)}`;
-      } else {
-        // Full page reload so Header picks up the new auth state
-        window.location.href = redirectTo;
-      }
+      completeAuthRedirect();
     } else {
       setError(result.error);
       // Check if the error is specifically about email verification
@@ -87,6 +108,17 @@ export default function LoginPage() {
           <p style={styles.subtitle}>
             {fromDesktop ? 'Sign in to activate the desktop app' : 'Sign in to your account to continue'}
           </p>
+
+          <GoogleSignInButton
+            onCredential={handleGoogleCredential}
+            onError={(m) => setError(m)}
+            disabled={loading}
+          />
+          <div style={styles.orRow}>
+            <span style={styles.orLine} />
+            <span style={styles.orText}>or continue with email</span>
+            <span style={styles.orLine} />
+          </div>
 
           <form onSubmit={handleSubmit}>
             {error && (
@@ -119,6 +151,12 @@ export default function LoginPage() {
                 value={password} onChange={(e) => setPassword(e.target.value)}
                 required autoComplete="current-password" placeholder="Enter your password"
                 disabled={loading} />
+            </div>
+
+            <div style={{ textAlign: 'right', marginTop: -8, marginBottom: 14 }}>
+              <Link to="/forgot-password" style={{ fontSize: 13, color: '#60a5fa', textDecoration: 'none' }}>
+                Forgot password?
+              </Link>
             </div>
 
             <button type="submit" disabled={loading} className="btn btn-primary" style={{ width: '100%', marginTop: 8 }}>
@@ -176,6 +214,9 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: 16,
   },
   footer: { fontSize: 14, color: '#64748b', textAlign: 'center', marginTop: 24 },
+  orRow: { display: 'flex', alignItems: 'center', gap: 10, margin: '16px 0 18px' },
+  orLine: { flex: 1, height: 1, background: 'rgba(148,163,184,0.18)' },
+  orText: { fontSize: 12, color: '#64748b', whiteSpace: 'nowrap' as const },
   resendBtn: {
     background: 'rgba(59, 130, 246, 0.15)',
     border: '1px solid rgba(59, 130, 246, 0.3)',
