@@ -33,6 +33,8 @@ import {
   WalletError,
   RATE_PER_MINUTE_PAISE,
   MAX_SESSION_MINUTES,
+  SESSION_START_MIN_PAISE,
+  AUTO_EXTEND_MINUTES,
 } from '../wallet/ledger.js';
 
 export interface SessionsRouterDeps {
@@ -65,7 +67,7 @@ const INSERT_SESSION_SQL = `
 `;
 
 const FIND_SESSION_SQL = `
-  SELECT id, user_id, status, started_at, charged_paise
+  SELECT id, user_id, status, started_at, expires_at, charged_paise, auto_extended
     FROM interview_sessions
    WHERE id = $1
 `;
@@ -82,7 +84,9 @@ interface FindSessionRow {
   user_id: string;
   status: string;
   started_at: Date | string;
+  expires_at: Date | string;
   charged_paise: number | string;
+  auto_extended: boolean;
 }
 
 interface InsertedSessionRow {
@@ -125,6 +129,7 @@ async function chargeElapsedMinutes(
   userId: string,
   session: { id: string; startedAtMs: number; chargedPaise: number },
   nowMs: number,
+  allowNegative = false,
 ): Promise<ChargeResult> {
   const owed = owedMinutes(session.startedAtMs, nowMs);
   const alreadyChargedMinutes = Math.round(session.chargedPaise / RATE_PER_MINUTE_PAISE);
@@ -137,7 +142,11 @@ async function chargeElapsedMinutes(
 
   const balance = await getWalletBalancePaise(client, userId);
   const affordableMinutes = Math.floor(balance / RATE_PER_MINUTE_PAISE);
-  const minutesToCharge = Math.min(deltaMinutes, affordableMinutes);
+  // During a grace extension we bill every owed minute even if it drives the
+  // balance negative; otherwise we bill only what the wallet can cover.
+  const minutesToCharge = allowNegative
+    ? deltaMinutes
+    : Math.min(deltaMinutes, affordableMinutes);
 
   let newChargedPaise = session.chargedPaise;
   let newBalance = balance;
@@ -150,6 +159,7 @@ async function chargeElapsedMinutes(
       reason: 'session_charge',
       interviewSessionId: session.id,
       note: `Interview time: ${minutesToCharge} min`,
+      allowNegative,
     });
     newBalance = res.resultingBalancePaise;
     newChargedPaise = session.chargedPaise + amount;
@@ -159,11 +169,11 @@ async function chargeElapsedMinutes(
     );
   }
 
-  // If we could not pay for every owed minute, the wallet is exhausted.
+  // Without grace, an inability to pay for every owed minute exhausts the wallet.
   return {
     chargedPaise: newChargedPaise,
     balancePaise: newBalance,
-    exhausted: minutesToCharge < deltaMinutes,
+    exhausted: allowNegative ? false : minutesToCharge < deltaMinutes,
   };
 }
 
@@ -256,18 +266,21 @@ export function buildSessionsRouter(deps: SessionsRouterDeps): Hono {
         );
       }
 
-      // Require at least one minute of balance.
+      // Require a minimum starting balance (Rs 50). This buffer backs the
+      // one-time mid-interview grace extension, which may run the balance
+      // negative and is reconciled on the user's next top-up.
       const balance = await getWalletBalancePaise(client, userId);
-      if (balance < RATE_PER_MINUTE_PAISE) {
+      if (balance < SESSION_START_MIN_PAISE) {
         await client.query('ROLLBACK');
         return c.json(
           {
             error: {
               code: 'insufficient_balance',
-              message: 'Add money to your wallet to start an interview.',
+              message: 'Add at least \u20B950 to your wallet to start an interview.',
               details: {
                 balance_paise: balance,
                 rate_per_minute_paise: RATE_PER_MINUTE_PAISE,
+                min_start_paise: SESSION_START_MIN_PAISE,
               },
             },
           },
@@ -413,23 +426,58 @@ export function buildSessionsRouter(deps: SessionsRouterDeps): Hono {
       }
 
       const now = clock();
+      const nowMs = now.getTime();
+      const startedAtMs = toDate(session.started_at).getTime();
+      const expiresAtMs = toDate(session.expires_at).getTime();
+      const inGrace = session.auto_extended === true;
+
+      // Bill elapsed minutes. During the grace window we allow the balance to
+      // go negative so the interview is never interrupted mid-answer.
       const charge = await chargeElapsedMinutes(
         client,
         userId,
-        {
-          id: session.id,
-          startedAtMs: toDate(session.started_at).getTime(),
-          chargedPaise: Number(session.charged_paise),
-        },
-        now.getTime(),
+        { id: session.id, startedAtMs, chargedPaise: Number(session.charged_paise) },
+        nowMs,
+        inGrace,
       );
 
-      if (charge.exhausted) {
-        await client.query(END_SESSION_SQL, [sessionId, userId, 'insufficient_funds']);
+      // Not yet extended and the wallet just ran out → grant a one-time grace
+      // extension instead of ending: bill the remaining owed minutes into a
+      // (possibly negative) balance and push expires_at out by AUTO_EXTEND_MINUTES.
+      // The debt is reconciled automatically on the user's next top-up.
+      if (!inGrace && charge.exhausted) {
+        const grace = await chargeElapsedMinutes(
+          client,
+          userId,
+          { id: session.id, startedAtMs, chargedPaise: charge.chargedPaise },
+          nowMs,
+          true,
+        );
+        await client.query(
+          `UPDATE interview_sessions
+              SET auto_extended = true,
+                  expires_at = expires_at + make_interval(mins => $2)
+            WHERE id = $1`,
+          [sessionId, AUTO_EXTEND_MINUTES],
+        );
+        await client.query('COMMIT');
+        return c.json({
+          active: true,
+          extended: true,
+          auto_extend_minutes: AUTO_EXTEND_MINUTES,
+          balance_paise: grace.balancePaise,
+          charged_paise: grace.chargedPaise,
+          rate_per_minute_paise: RATE_PER_MINUTE_PAISE,
+        });
+      }
+
+      // The (possibly extended) safety window has fully elapsed → end.
+      if (nowMs >= expiresAtMs) {
+        await client.query(END_SESSION_SQL, [sessionId, userId, 'expired']);
         await client.query('COMMIT');
         return c.json({
           active: false,
-          reason: 'insufficient_funds',
+          reason: 'expired',
           balance_paise: charge.balancePaise,
           charged_paise: charge.chargedPaise,
         });
@@ -541,6 +589,98 @@ export function buildSessionsRouter(deps: SessionsRouterDeps): Hono {
       if (client) {
         client.release();
       }
+    }
+  });
+
+  /**
+   * POST /sessions/:id/extend
+   *
+   * One-time mid-interview grace extension. Bills any owed minutes into a
+   * possibly-negative balance (reconciled on the next top-up) and pushes
+   * expires_at out by AUTO_EXTEND_MINUTES. Idempotent per session: a session
+   * already auto-extended is returned unchanged.
+   */
+  router.post('/sessions/:id/extend', async (c) => {
+    const authResult = await authenticateRequest(c);
+    if (!(authResult && 'userId' in authResult)) {
+      return authResult;
+    }
+    const { userId } = authResult;
+    const sessionId = c.req.param('id');
+    const clock = deps.now ?? (() => new Date());
+    let client: PoolClient | undefined;
+
+    try {
+      client = await deps.pool.connect();
+      await client.query('BEGIN');
+      await client.query(ADVISORY_LOCK_SQL, [userId]);
+
+      const findResult = await client.query<FindSessionRow>(FIND_SESSION_SQL, [sessionId]);
+      const session = findResult.rows[0];
+      if (!session || session.user_id !== userId) {
+        await client.query('ROLLBACK');
+        return c.json({ error: { code: 'session_not_found', message: 'session not found' } }, 404);
+      }
+      if (session.status !== 'active') {
+        await client.query('ROLLBACK');
+        return c.json({ error: { code: 'session_not_active', message: 'session is not active' } }, 409);
+      }
+
+      const nowMs = clock().getTime();
+      const startedAtMs = toDate(session.started_at).getTime();
+
+      if (session.auto_extended === true) {
+        const balancePaise = await getWalletBalancePaise(client, userId);
+        const remainingMs = toDate(session.expires_at).getTime() - nowMs;
+        await client.query('COMMIT');
+        return c.json({
+          ok: true,
+          already_extended: true,
+          session_id: sessionId,
+          expires_at: toDate(session.expires_at).toISOString(),
+          remaining_seconds: Math.max(0, Math.floor(remainingMs / 1000)),
+          balance_paise: balancePaise,
+          charged_paise: Number(session.charged_paise),
+          rate_per_minute_paise: RATE_PER_MINUTE_PAISE,
+        });
+      }
+
+      const grace = await chargeElapsedMinutes(
+        client,
+        userId,
+        { id: session.id, startedAtMs, chargedPaise: Number(session.charged_paise) },
+        nowMs,
+        true,
+      );
+      const updated = await client.query<{ expires_at: Date | string }>(
+        `UPDATE interview_sessions
+            SET auto_extended = true,
+                expires_at = expires_at + make_interval(mins => $2)
+          WHERE id = $1
+          RETURNING expires_at`,
+        [sessionId, AUTO_EXTEND_MINUTES],
+      );
+      const newExpiresAt = toDate(updated.rows[0]!.expires_at);
+      await client.query('COMMIT');
+      const remainingMs = newExpiresAt.getTime() - nowMs;
+      return c.json({
+        ok: true,
+        extended: true,
+        auto_extend_minutes: AUTO_EXTEND_MINUTES,
+        session_id: sessionId,
+        expires_at: newExpiresAt.toISOString(),
+        remaining_seconds: Math.max(0, Math.floor(remainingMs / 1000)),
+        balance_paise: grace.balancePaise,
+        charged_paise: grace.chargedPaise,
+        rate_per_minute_paise: RATE_PER_MINUTE_PAISE,
+      });
+    } catch (err) {
+      if (client) {
+        try { await client.query('ROLLBACK'); } catch { /* ignore */ }
+      }
+      throw err;
+    } finally {
+      if (client) client.release();
     }
   });
 

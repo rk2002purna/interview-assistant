@@ -84,7 +84,7 @@ export default function RegisterPage() {
           </div>
           <h1 style={styles.title}>Create Your Account</h1>
           <p style={styles.subtitle}>
-            Get 3 free interview sessions when you sign up
+            Sign up and get ₹50 free — then pay as you go at ₹5/min
           </p>
 
           <GoogleSignInButton
