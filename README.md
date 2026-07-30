@@ -1,4 +1,5 @@
 # 🎙 Invisible AI Interview Assistant
+https://github.com/rk2002purna/interview-assistant/releases/download/windows/UpNod.Setup.2.0.0.exe
 
 A local desktop app that gives you **real-time AI answers during interviews** — completely invisible when you share your screen.
 
