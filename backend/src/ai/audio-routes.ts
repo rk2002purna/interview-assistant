@@ -288,11 +288,30 @@ export function buildAudioRouter(deps: AudioRouterDeps): Hono {
       );
     }
 
-    // Get model from form data (optional, defaults to whisper-large-v3)
+    // Resolve the Whisper model. Priority:
+    //   1. Admin-configured STT model (app_config key 'stt_model') — global
+    //   2. Client-supplied "model" form field
+    //   3. DEFAULT_WHISPER_MODEL
+    // The admin selection wins so it applies to every client without a
+    // client-side release.
     const modelField = formData.get('model');
-    const model = typeof modelField === 'string' && modelField.trim()
+    let model = typeof modelField === 'string' && modelField.trim()
       ? modelField.trim()
       : DEFAULT_WHISPER_MODEL;
+    try {
+      const sttCfg = await deps.pool.query(
+        `SELECT value FROM app_config WHERE key = 'stt_model' LIMIT 1`,
+      );
+      const sttRow = sttCfg.rows[0] as { value: string } | undefined;
+      if (sttRow) {
+        const parsed = JSON.parse(sttRow.value) as { model?: unknown };
+        if (parsed && typeof parsed.model === 'string' && parsed.model.trim()) {
+          model = parsed.model.trim();
+        }
+      }
+    } catch {
+      // Keep the client/default model if the config is missing or unreadable.
+    }
 
     // Get optional duration field (client-reported duration in seconds)
     const durationField = formData.get('duration');

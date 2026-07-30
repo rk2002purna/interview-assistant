@@ -237,6 +237,40 @@ export async function login(
   }
 }
 
+/**
+ * Sign in with a Google ID token obtained from Google Identity Services.
+ * The user never types a password: the backend verifies the token and issues
+ * our access + refresh tokens. Mirrors {@link login}.
+ */
+export async function loginWithGoogle(
+  idToken: string,
+): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    const resp = await fetch(`${API_BASE_URL}/auth/google`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id_token: idToken, client_id: getClientId() }),
+    });
+    if (!resp.ok) {
+      const errBody = (await resp.json().catch(() => null)) as { error?: ApiError } | null;
+      return { success: false, error: errBody?.error?.message ?? 'Google sign-in failed' };
+    }
+    const data = (await resp.json()) as {
+      access_token: string;
+      refresh_token: string;
+      expires_in: number;
+      role: string;
+      display_name: string | null;
+    };
+    storeTokens({ accessToken: data.access_token, refreshToken: data.refresh_token });
+    const payload = parseJwtPayload(data.access_token);
+    storeUser({ sub: payload.sub as string, role: data.role, displayName: data.display_name ?? null });
+    return { success: true };
+  } catch {
+    return { success: false, error: 'Network error. Please try again.' };
+  }
+}
+
 /** Register a new account. */
 export async function register(
   email: string,

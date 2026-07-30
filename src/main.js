@@ -360,6 +360,12 @@ ipcMain.on('open-browser-register', () => {
   shell.openExternal(`${WEB_APP_URL}/desktop-auth?intent=register`);
 });
 
+ipcMain.on('open-browser-google', () => {
+  // Open the web login page (desktop mode) which shows "Continue with Google".
+  // After Google sign-in the page hands tokens back via interview-assistant://callback.
+  shell.openExternal(`${WEB_APP_URL}/login?desktop=1`);
+});
+
 ipcMain.on('hide-for-screenshot', () => {
   if (mainWindow) {
     mainWindow.hide();
@@ -688,6 +694,35 @@ function inferAudioFileConfig(mimeType) {
   return { fileName: 'audio.webm', contentType: 'audio/webm' };
 }
 
+// Cached admin-configured Speech-to-Text model (Groq Whisper). The backend
+// also enforces the admin selection on /ai/audio, so this is a best-effort
+// hint kept loosely in sync with the public /config/stt endpoint.
+let cachedSttModel = null;
+let cachedSttModelAt = 0;
+const STT_MODEL_TTL_MS = 5 * 60 * 1000; // refresh at most every 5 minutes
+
+async function getConfiguredSttModel() {
+  const now = Date.now();
+  if (cachedSttModel && (now - cachedSttModelAt) < STT_MODEL_TTL_MS) {
+    return cachedSttModel;
+  }
+  try {
+    const { getBaseUrl } = require('./net/backend-client');
+    const response = await fetch(`${getBaseUrl()}/config/stt`);
+    if (response.ok) {
+      const data = await response.json();
+      const model = data && data.stt && data.stt.model;
+      if (typeof model === 'string' && model.trim()) {
+        cachedSttModel = model.trim();
+        cachedSttModelAt = now;
+      }
+    }
+  } catch (e) {
+    // Ignore network errors; fall back to cached value or default below.
+  }
+  return cachedSttModel || 'whisper-large-v3';
+}
+
 ipcMain.handle('transcribe-audio', async (event, { audioData, mimeType }) => {
   try {
     // Build multipart form data for the backend-managed /ai/audio endpoint.
@@ -701,7 +736,7 @@ ipcMain.handle('transcribe-audio', async (event, { audioData, mimeType }) => {
     const formData = new globalThis.FormData();
     const file = new globalThis.File([audioBuffer], fileName, { type: contentType });
     formData.append('file', file);
-    formData.append('model', 'whisper-large-v3');
+    formData.append('model', await getConfiguredSttModel());
 
     const token = authController.getAccessToken();
     const headers = {
