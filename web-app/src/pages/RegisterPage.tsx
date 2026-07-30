@@ -1,8 +1,9 @@
 import { useState, useEffect, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { register, isAuthSession, getStoredTokens } from '../api/client';
+import { register, loginWithGoogle, isAuthSession, getStoredTokens } from '../api/client';
 import Header from '../components/Header';
 import Footer from '../components/Footer';
+import GoogleSignInButton from '../components/GoogleSignInButton';
 
 export default function RegisterPage() {
   const [searchParams] = useSearchParams();
@@ -23,6 +24,30 @@ export default function RegisterPage() {
       window.location.href = callbackUrl;
     }
   }, [fromDesktop]);
+
+  // Google sign-up == sign-in: the account is created on first use and the
+  // email is treated as verified (no verification link), so we route straight
+  // back to the app just like the login page does.
+  function completeAuthRedirect() {
+    if (fromDesktop) {
+      window.location.href = `/callback?redirect=${encodeURIComponent('/')}`;
+    } else {
+      window.location.href = '/';
+    }
+  }
+
+  async function handleGoogleCredential(idToken: string) {
+    setError('');
+    setSuccess('');
+    setLoading(true);
+    const result = await loginWithGoogle(idToken);
+    if (result.success) {
+      completeAuthRedirect();
+    } else {
+      setError(result.error);
+      setLoading(false);
+    }
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -55,6 +80,17 @@ export default function RegisterPage() {
           <p style={styles.subtitle}>
             Get 3 free interview sessions when you sign up
           </p>
+
+          <GoogleSignInButton
+            onCredential={handleGoogleCredential}
+            onError={(m) => setError(m)}
+            disabled={loading}
+          />
+          <div style={styles.orRow}>
+            <span style={styles.orLine} />
+            <span style={styles.orText}>or sign up with email</span>
+            <span style={styles.orLine} />
+          </div>
 
           <form onSubmit={handleSubmit}>
             {error && <div style={styles.error}>{error}</div>}
@@ -158,4 +194,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   hint: { fontSize: 11, color: '#475569', marginTop: 4, display: 'block' },
   footer: { fontSize: 14, color: '#64748b', textAlign: 'center', marginTop: 24 },
+  orRow: { display: 'flex', alignItems: 'center', gap: 10, margin: '16px 0 18px' },
+  orLine: { flex: 1, height: 1, background: 'rgba(148,163,184,0.18)' },
+  orText: { fontSize: 12, color: '#64748b', whiteSpace: 'nowrap' as const },
 };

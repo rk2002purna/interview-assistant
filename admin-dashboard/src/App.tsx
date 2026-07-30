@@ -9,6 +9,7 @@ import PacksPage from './pages/PacksPage';
 import RateLimitsPage from './pages/RateLimitsPage';
 import ProviderKeysPage from './pages/ProviderKeysPage';
 import ModelRoutingPage from './pages/ModelRoutingPage';
+import SpeechToTextPage from './pages/SpeechToTextPage';
 import UsageAnalyticsPage from './pages/UsageAnalyticsPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -30,6 +31,7 @@ export default function App() {
       <Route path="/rate-limits" element={<ProtectedRoute><RateLimitsPage /></ProtectedRoute>} />
       <Route path="/provider-keys" element={<ProtectedRoute><ProviderKeysPage /></ProtectedRoute>} />
       <Route path="/model-routing" element={<ProtectedRoute><ModelRoutingPage /></ProtectedRoute>} />
+      <Route path="/speech-to-text" element={<ProtectedRoute><SpeechToTextPage /></ProtectedRoute>} />
       <Route path="/usage-analytics" element={<ProtectedRoute><UsageAnalyticsPage /></ProtectedRoute>} />
 
       <Route path="/" element={<ProtectedRoute><Navigate to="/users" replace /></ProtectedRoute>} />

@@ -5,6 +5,7 @@ const NAV_ITEMS = [
   { to: '/users',            label: '👥 Users' },
   { to: '/provider-keys',   label: '🔑 Provider Keys' },
   { to: '/model-routing',   label: '🤖 Model Routing' },
+  { to: '/speech-to-text',  label: '🎙 Speech-to-Text' },
   { to: '/usage-analytics', label: '📊 Usage Analytics' },
   { to: '/packs',           label: '📦 Packs' },
   { to: '/rate-limits',     label: '⚡ Rate Limits' },
