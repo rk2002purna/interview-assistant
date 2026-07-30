@@ -5,3 +5,6 @@ out/
 .env
 .env.production
 .env.local
+
+# Never commit cloud SSH private keys.
+*.pem

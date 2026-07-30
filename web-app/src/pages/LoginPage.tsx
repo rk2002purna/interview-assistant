@@ -98,6 +98,12 @@ export default function LoginPage() {
 
   return (
     <>
+      {loading && (
+        <div className="loading-overlay" role="status" aria-live="polite">
+          <div className="spinner" />
+          <div className="loading-text">Signing you in…</div>
+        </div>
+      )}
       <Header />
       <main style={styles.wrapper}>
         <div style={styles.card}>

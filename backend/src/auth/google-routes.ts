@@ -21,6 +21,7 @@ import { z } from 'zod';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { signAccessToken, ACCESS_TOKEN_TTL_SECONDS } from './jwt.js';
+import { appendWalletEntry, SIGNUP_BONUS_PAISE } from '../wallet/ledger.js';
 
 /** Refresh token TTL (30 days) — matches /auth/login. */
 export const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -213,6 +214,16 @@ export function buildAuthGoogleRouter(deps: GoogleRoutesDeps): Hono {
            VALUES ($1, $2, $3, $4, $5, 'user')`,
           [newId, email, identity.sub, identity.name, now.toISOString()],
         );
+        // Credit the one-time signup bonus, same as email registration
+        // (register-routes.ts), in the SAME transaction so account creation and
+        // the wallet credit are atomic. Only first-time Google accounts get it;
+        // accounts linked by google_sub or email above are existing users.
+        await appendWalletEntry(client, {
+          userId: newId,
+          amountPaise: SIGNUP_BONUS_PAISE,
+          reason: 'signup_bonus',
+          note: 'Welcome bonus (Rs 50)',
+        });
         user = { id: newId, email, role: 'user', display_name: identity.name ?? null };
       }
 

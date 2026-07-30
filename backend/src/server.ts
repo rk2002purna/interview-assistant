@@ -10,30 +10,36 @@ import { buildResendEmailSenders } from './auth/resend-email-sender.js';
 import { createRazorpayClient } from './billing/razorpay-client.js';
 
 /**
- * Run all pending SQL migrations from the /migrations folder.
- * Uses a simple applied_migrations table to track which have run.
- * Idempotent — safe to call on every startup.
+ * Existing migration files may include their own outer BEGIN/COMMIT wrapper.
+ * The runner owns the transaction so schema changes and bookkeeping can commit
+ * together; remove only a wrapper anchored outside comments and whitespace.
+ */
+function unwrapMigrationTransaction(sql: string, file: string): string {
+  const outerBegin = /^((?:\s|--[^\n]*(?:\n|$))*)BEGIN\s*;/i;
+  const outerCommit = /COMMIT\s*;\s*$/i;
+  const hasOuterBegin = outerBegin.test(sql);
+  const hasOuterCommit = outerCommit.test(sql);
+
+  if (hasOuterBegin !== hasOuterCommit) {
+    throw new Error(`migration ${file} has an incomplete transaction wrapper`);
+  }
+  if (!hasOuterBegin) return sql;
+
+  return sql.replace(outerBegin, '$1').replace(outerCommit, '');
+}
+
+/**
+ * Run pending migrations under one session-level advisory lock. Each SQL file
+ * and its tracking row commit atomically, preventing concurrent instances or a
+ * crash between schema changes and migration bookkeeping from corrupting state.
  */
 async function runMigrations(pool: Pool): Promise<void> {
   const __dirname = dirname(fileURLToPath(import.meta.url));
-  // dist/server.js lives in backend/dist/, migrations live in backend/migrations/,
-  // so resolve one level up. We check a couple of candidate locations so a
-  // different deploy layout (e.g. migrations copied into dist/) still works.
   const candidates = [
-    join(__dirname, '..', 'migrations'), // backend/migrations  (standard layout)
-    join(__dirname, 'migrations'),       // dist/migrations      (bundled layout)
+    join(__dirname, '..', 'migrations'),
+    join(__dirname, 'migrations'),
   ];
 
-  // Ensure tracking table exists
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS applied_migrations (
-      name TEXT PRIMARY KEY,
-      applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `);
-
-  // Pick the first existing migrations directory. Fail loudly if none is
-  // found so the deploy breaks early instead of silently skipping schema work.
   let migrationsDir: string | undefined;
   for (const candidate of candidates) {
     try {
@@ -41,7 +47,7 @@ async function runMigrations(pool: Pool): Promise<void> {
       migrationsDir = candidate;
       break;
     } catch {
-      // not present; try next
+      // Not present; try the next supported deployment layout.
     }
   }
   if (!migrationsDir) {
@@ -51,24 +57,52 @@ async function runMigrations(pool: Pool): Promise<void> {
   }
 
   const files = (await readdir(migrationsDir))
-    .filter(f => f.endsWith('.sql'))
+    .filter((file) => file.endsWith('.sql'))
     .sort();
+  const client = await pool.connect();
 
-  for (const file of files) {
-    const existing = await pool.query(
-      'SELECT 1 FROM applied_migrations WHERE name = $1',
-      [file],
-    );
-    if (existing.rows.length > 0) continue; // already applied
+  try {
+    // Stable application-specific key; released automatically if the session
+    // disconnects unexpectedly.
+    await client.query('SELECT pg_advisory_lock($1::bigint)', [1431326287]);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS applied_migrations (
+        name TEXT PRIMARY KEY,
+        applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
 
-    const sql = await readFile(join(migrationsDir, file), 'utf8');
-    console.log(`[migrations] applying ${file}…`);
-    await pool.query(sql);
-    await pool.query(
-      'INSERT INTO applied_migrations (name) VALUES ($1)',
-      [file],
-    );
-    console.log(`[migrations] applied  ${file}`);
+    for (const file of files) {
+      const existing = await client.query(
+        'SELECT 1 FROM applied_migrations WHERE name = $1',
+        [file],
+      );
+      if (existing.rows.length > 0) continue;
+
+      const sql = unwrapMigrationTransaction(
+        await readFile(join(migrationsDir, file), 'utf8'),
+        file,
+      );
+      console.log(`[migrations] applying ${file}…`);
+      await client.query('BEGIN');
+      try {
+        await client.query(sql);
+        await client.query(
+          'INSERT INTO applied_migrations (name) VALUES ($1)',
+          [file],
+        );
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      }
+      console.log(`[migrations] applied  ${file}`);
+    }
+  } finally {
+    await client
+      .query('SELECT pg_advisory_unlock($1::bigint)', [1431326287])
+      .catch(() => undefined);
+    client.release();
   }
 }
 const port = Number.parseInt(process.env.PORT ?? '8787', 10);
@@ -78,7 +112,7 @@ const { mode, databaseUrl } = loadModeConfig();
 
 const pool = new Pool({
   connectionString: databaseUrl,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: true } : undefined,
 });
 
 // Resend email senders (free tier: 100 emails/day). When RESEND_API_KEY is

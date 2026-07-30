@@ -1,23 +1,29 @@
 /**
- * PM2 ecosystem config for the interview-assistant backend.
- * Usage on server: pm2 start ecosystem.config.cjs --env production
+ * PM2 configuration for a versioned EC2 release. Using __dirname keeps this
+ * portable across release directories and allows deploy.sh to roll back by
+ * changing only the current symlink.
  */
 module.exports = {
   apps: [
     {
       name: 'interview-assistant-backend',
       script: 'dist/server.js',
-      cwd: '/home/ubuntu/interview-assistant/backend',
+      cwd: __dirname,
       instances: 1,
+      exec_mode: 'fork',
       autorestart: true,
       watch: false,
+      restart_delay: 5000,
+      max_memory_restart: '1G',
+      kill_timeout: 15000,
       env_production: {
         NODE_ENV: 'production',
         PORT: 8787,
       },
-      error_file: '/var/log/pm2/interview-assistant-error.log',
-      out_file: '/var/log/pm2/interview-assistant-out.log',
-      log_date_format: 'YYYY-MM-DD HH:mm:ss',
+      error_file: '/var/log/upnod/backend-error.log',
+      out_file: '/var/log/upnod/backend-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      merge_logs: true,
     },
   ],
 };
