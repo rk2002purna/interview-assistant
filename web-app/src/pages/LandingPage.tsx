@@ -479,41 +479,67 @@ function VideoPlayer({ src, poster, chapters }: { src: string; poster?: string; 
   const volIcon = muted || volume === 0 ? '🔇' : volume < 0.5 ? '🔉' : '🔊';
 
   return (
-    <div style={demo.videoWrap}>
+    <div className="product-tour-shell" style={demo.videoWrap}>
+      <div className="product-tour-banner">
+        <div className="product-tour-banner-copy">
+          <span className="product-tour-kicker"><i aria-hidden="true" /> Guided product tour</span>
+          <h3>See UpNod from setup to your first session</h3>
+          <p>A quick, chaptered walkthrough you can pause, replay, or watch at your own pace.</p>
+        </div>
+        <div className="product-tour-meta" aria-label="Video details">
+          <span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+            {duration ? `${Math.max(1, Math.ceil(duration / 60))} min` : 'Quick tour'}
+          </span>
+          <span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M5 4h14v16H5zM9 4v16M15 4v16" /></svg>
+            {chapters.length} chapters
+          </span>
+          <span className="product-tour-platforms">Windows + macOS</span>
+        </div>
+      </div>
+
       <div
         ref={containerRef}
+        className="product-tour-frame"
         onMouseMove={resetHideTimer}
         onMouseLeave={() => playing && setShowControls(false)}
+        onTouchStart={resetHideTimer}
+        onFocus={resetHideTimer}
         style={demo.playerWrap}
+        role="region"
+        aria-label="UpNod product tour video player"
       >
         <video
           ref={videoRef}
+          className="product-tour-video"
           src={src}
           poster={poster}
           onClick={togglePlay}
           style={{ width: '100%', height: '100%', display: 'block', cursor: 'pointer', objectFit: 'contain', background: '#000' }}
         />
 
-        {/* Big play button overlay when paused */}
         {!playing && (
-          <div onClick={togglePlay} style={demo.bigPlay}>
-            <div style={demo.bigPlayCircle}>
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
-            </div>
-          </div>
+          <button type="button" onClick={togglePlay} className="product-tour-start" style={demo.bigPlay} aria-label="Play the UpNod product tour">
+            <span className="product-tour-play-circle" style={demo.bigPlayCircle}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="white" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+            </span>
+            <span className="product-tour-play-copy">
+              <strong>{currentTime > 0 ? 'Continue watching' : 'Play product tour'}</strong>
+              <small>{currentTime > 0 ? `Resume at ${fmt(currentTime)}` : 'Setup, modes, and your first session'}</small>
+            </span>
+          </button>
         )}
 
-        {/* Current chapter title badge */}
         {chapters.length > 0 && (
-          <div style={{ ...demo.titleBadge, opacity: showControls ? 1 : 0 }}>
-            {chapters[activeChapter]?.title}
+          <div className="product-tour-current-chapter" style={{ ...demo.titleBadge, opacity: showControls ? 1 : 0 }}>
+            <span>Chapter {String(activeChapter + 1).padStart(2, '0')}</span>
+            <strong>{chapters[activeChapter]?.title}</strong>
           </div>
         )}
 
-        {/* Controls bar */}
-        <div style={{ ...demo.controls, opacity: showControls ? 1 : 0, transition: 'opacity 0.3s' }}>
-          {/* Segmented progress bar (YouTube-style chapters) */}
-          <div style={demo.segmentBar}>
+        <div className={`product-tour-controls${showControls ? ' is-visible' : ''}`} style={{ ...demo.controls, opacity: showControls ? 1 : 0, transition: 'opacity 0.3s' }}>
+          <div className="product-tour-segments" style={demo.segmentBar}>
             {(duration ? segments : [{ title: '', start: 0, end: duration }]).map((seg, i) => {
               const segLen = seg.end - seg.start || 1;
               const fill = Math.max(0, Math.min(1, (currentTime - seg.start) / segLen)) * 100;
@@ -522,61 +548,62 @@ function VideoPlayer({ src, poster, chapters }: { src: string; poster?: string; 
               return (
                 <div
                   key={i}
+                  className="product-tour-segment"
                   onClick={(e) => seekInSegment(e, seg)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      seekTo(seg.start);
+                    }
+                  }}
                   onMouseEnter={() => setHoverChapter(i)}
                   onMouseLeave={() => setHoverChapter(null)}
                   style={{ ...demo.segment, flexGrow: segLen }}
                   title={seg.title}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={seg.title ? `Jump to ${seg.title}` : 'Video progress'}
                 >
                   <div style={{ ...demo.segTrack, height: isHover ? 6 : 4 }}>
                     <div style={{ ...demo.segBuf, width: `${buf}%` }} />
-                    <div style={{ ...demo.segFill, width: `${fill}%` }} />
+                    <div className="product-tour-segment-fill" style={{ ...demo.segFill, width: `${fill}%` }} />
                   </div>
-                  {/* Chapter tooltip on hover */}
-                  {isHover && seg.title && (
-                    <div style={demo.segTooltip}>{seg.title}</div>
-                  )}
+                  {isHover && seg.title && <div className="product-tour-tooltip" style={demo.segTooltip}>{seg.title}</div>}
                 </div>
               );
             })}
           </div>
 
-          <div style={demo.controlsRow}>
-            {/* Play/Pause */}
-            <button onClick={togglePlay} style={demo.ctrlBtn} title={playing ? 'Pause' : 'Play'}>
+          <div className="product-tour-controls-row" style={demo.controlsRow}>
+            <button type="button" onClick={togglePlay} style={demo.ctrlBtn} title={playing ? 'Pause' : 'Play'} aria-label={playing ? 'Pause video' : 'Play video'}>
               {playing
-                ? <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M6 19h4V5H6zm8-14v14h4V5z"/></svg>
-                : <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>}
+                ? <svg width="18" height="18" viewBox="0 0 24 24" fill="white" aria-hidden="true"><path d="M6 19h4V5H6zm8-14v14h4V5z"/></svg>
+                : <svg width="18" height="18" viewBox="0 0 24 24" fill="white" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>}
             </button>
 
-            {/* Volume */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}
+            <div className="product-tour-volume" style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}
               onMouseEnter={() => setShowVolume(true)} onMouseLeave={() => setShowVolume(false)}>
-              <button onClick={toggleMute} style={demo.ctrlBtn} title="Mute/Unmute">{volIcon}</button>
+              <button type="button" onClick={toggleMute} style={demo.ctrlBtn} title="Mute/Unmute" aria-label={muted ? 'Unmute video' : 'Mute video'}>{volIcon}</button>
               {showVolume && (
                 <input type="range" min={0} max={1} step={0.05} value={muted ? 0 : volume}
-                  onChange={changeVolume} style={demo.volSlider} />
+                  onChange={changeVolume} style={demo.volSlider} aria-label="Video volume" />
               )}
             </div>
 
-            {/* Time + current chapter name */}
-            <span style={demo.timeLabel}>{fmt(currentTime)} / {fmt(duration)}</span>
-            {chapters.length > 0 && (
-              <span style={demo.chapterNowLabel}>• {chapters[activeChapter]?.title}</span>
-            )}
+            <span className="product-tour-time" style={demo.timeLabel}>{fmt(currentTime)} / {fmt(duration)}</span>
+            {chapters.length > 0 && <span className="product-tour-chapter-label" style={demo.chapterNowLabel}>• {chapters[activeChapter]?.title}</span>}
 
             <div style={{ flex: 1 }} />
 
-            {/* Playback speed */}
-            <div style={{ position: 'relative' }}>
-              <button onClick={() => setShowSpeed((s) => !s)} style={{ ...demo.ctrlBtn, fontSize: 13, fontWeight: 600, color: '#fff' }} title="Playback speed">
+            <div className="product-tour-speed" style={{ position: 'relative' }}>
+              <button type="button" onClick={() => setShowSpeed((s) => !s)} style={{ ...demo.ctrlBtn, fontSize: 13, fontWeight: 600, color: '#fff' }} title="Playback speed" aria-label={`Playback speed ${speed}x`} aria-expanded={showSpeed}>
                 {speed}x
               </button>
               {showSpeed && (
-                <div style={demo.speedMenu}>
+                <div className="product-tour-speed-menu" style={demo.speedMenu} role="menu" aria-label="Playback speed">
                   {SPEEDS.map((s) => (
-                    <button key={s} onClick={() => changeSpeed(s)}
-                      style={{ ...demo.speedItem, ...(s === speed ? demo.speedItemActive : {}) }}>
+                    <button type="button" key={s} onClick={() => changeSpeed(s)}
+                      style={{ ...demo.speedItem, ...(s === speed ? demo.speedItemActive : {}) }} aria-pressed={s === speed}>
                       {s === 1 ? 'Normal' : `${s}x`}
                     </button>
                   ))}
@@ -584,11 +611,10 @@ function VideoPlayer({ src, poster, chapters }: { src: string; poster?: string; 
               )}
             </div>
 
-            {/* Fullscreen */}
-            <button onClick={toggleFullscreen} style={demo.ctrlBtn} title="Fullscreen">
+            <button type="button" onClick={toggleFullscreen} style={demo.ctrlBtn} title="Fullscreen" aria-label={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}>
               {fullscreen
-                ? <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M5 16h3v3h2v-5H5zm3-8H5v2h5V5H8zm6 11h2v-3h3v-2h-5zm2-11V5h-2v5h5V8z"/></svg>
-                : <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M7 14H5v5h5v-2H7zm-2-4h2V7h3V5H5zm12 7h-3v2h5v-5h-2zM14 5v2h3v3h2V5z"/></svg>}
+                ? <svg width="18" height="18" viewBox="0 0 24 24" fill="white" aria-hidden="true"><path d="M5 16h3v3h2v-5H5zm3-8H5v2h5V5H8zm6 11h2v-3h3v-2h-5zm2-11V5h-2v5h5V8z"/></svg>
+                : <svg width="18" height="18" viewBox="0 0 24 24" fill="white" aria-hidden="true"><path d="M7 14H5v5h5v-2H7zm-2-4h2V7h3V5H5zm12 7h-3v2h5v-5h-2zM14 5v2h3v3h2V5z"/></svg>}
             </button>
           </div>
         </div>
@@ -619,7 +645,7 @@ function DemoSection() {
 
         <VideoPlayer
           src="/videos/setup-guide.mp4"
-          poster="/videos/setup-guide.jpg"
+          poster="/videos/setup-guide-poster.svg"
           chapters={chapters}
         />
       </div>
