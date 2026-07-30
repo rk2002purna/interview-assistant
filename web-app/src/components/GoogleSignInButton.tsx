@@ -60,6 +60,7 @@ export default function GoogleSignInButton({ onCredential, onError, disabled }: 
       return;
     }
     let cancelled = false;
+    let resizeObserver: ResizeObserver | null = null;
     loadGoogleScript()
       .then(() => {
         if (cancelled || !containerRef.current) return;
@@ -71,20 +72,34 @@ export default function GoogleSignInButton({ onCredential, onError, disabled }: 
             else onErrorRef.current?.('No credential returned from Google.');
           },
         });
-        containerRef.current.innerHTML = '';
-        google.accounts.id.renderButton(containerRef.current, {
-          theme: 'filled_blue',
-          size: 'large',
-          type: 'standard',
-          text: 'continue_with',
-          shape: 'rectangular',
-          logo_alignment: 'left',
-          width: 320,
-        });
+
+        const renderButton = () => {
+          const container = containerRef.current;
+          if (cancelled || !container) return;
+          const availableWidth = Math.floor(container.getBoundingClientRect().width);
+          const buttonWidth = Math.min(360, Math.max(200, availableWidth || 320));
+          container.innerHTML = '';
+          google.accounts.id.renderButton(container, {
+            theme: 'outline',
+            size: 'large',
+            type: 'standard',
+            text: 'continue_with',
+            shape: 'rectangular',
+            logo_alignment: 'left',
+            width: buttonWidth,
+          });
+        };
+
+        renderButton();
+        if (typeof ResizeObserver !== 'undefined') {
+          resizeObserver = new ResizeObserver(renderButton);
+          resizeObserver.observe(containerRef.current);
+        }
       })
       .catch(() => onErrorRef.current?.('Could not load Google sign-in. Check your connection.'));
     return () => {
       cancelled = true;
+      resizeObserver?.disconnect();
     };
   }, [clientId]);
 
@@ -92,15 +107,14 @@ export default function GoogleSignInButton({ onCredential, onError, disabled }: 
 
   return (
     <div
+      className="google-signin-button"
+      aria-disabled={disabled || undefined}
       style={{
-        display: 'flex',
-        justifyContent: 'center',
-        marginBottom: 8,
         opacity: disabled ? 0.6 : 1,
         pointerEvents: disabled ? 'none' : 'auto',
       }}
     >
-      <div ref={containerRef} />
+      <div ref={containerRef} className="google-signin-button-host" />
     </div>
   );
 }

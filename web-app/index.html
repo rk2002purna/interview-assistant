@@ -1,18 +1,38 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="UpNod - AI-powered real-time interview co-pilot. Get instant answers in manual, passive listening, and screen analysis modes. Crack any technical or behavioral interview with confidence." />
-    <meta name="keywords" content="UpNod, AI interview helper, real-time interview answers, coding interview, job interview, interview preparation" />
-    <meta property="og:title" content="UpNod — AI Co-Pilot for Interviews" />
+    <meta name="theme-color" content="#f8faff" />
+    <meta name="description" content="Cueviq - AI-powered real-time interview co-pilot. Get instant answers in manual, passive listening, and screen analysis modes. Crack any technical or behavioral interview with confidence." />
+    <meta name="keywords" content="Cueviq, AI interview helper, real-time interview answers, coding interview, job interview, interview preparation" />
+    <meta property="og:title" content="Cueviq — AI Co-Pilot for Interviews" />
     <meta property="og:description" content="Real-time AI that helps you answer interview questions. Undetectable, works across all platforms." />
     <meta property="og:type" content="website" />
+    <script>
+      (function () {
+        var theme = 'light';
+        try {
+          var storedTheme = window.localStorage.getItem('upnod-theme');
+          theme = storedTheme === 'dark' || storedTheme === 'light'
+            ? storedTheme
+            : window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        } catch (_) {
+          theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = theme;
+        document.querySelector('meta[name="theme-color"]').setAttribute(
+          'content',
+          theme === 'dark' ? '#070a0e' : '#f8faff'
+        );
+      })();
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-    <title>UpNod — AI Co-Pilot for Interviews</title>
+    <title>Cueviq — AI Co-Pilot for Interviews</title>
   </head>
   <body>
     <div id="root"></div>

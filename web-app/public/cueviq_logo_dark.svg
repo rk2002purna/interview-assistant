@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 40" width="150" height="40" role="img" aria-label="Cueviq">
+  <rect x="1" y="1" width="38" height="38" rx="12" fill="#B8F56D"/>
+  <path d="M26.8 14.1A8.5 8.5 0 1 0 28 25.2" fill="none" stroke="#11180B" stroke-width="2.7" stroke-linecap="round"/>
+  <path d="m16.1 20.4 3.4 3.4 8.2-9" fill="none" stroke="#11180B" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m25.1 25.1 4.2 4.2" fill="none" stroke="#11180B" stroke-width="2.7" stroke-linecap="round"/>
+  <text x="48" y="28" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="25" font-weight="800" letter-spacing="-1.2"><tspan fill="#F2F6F8">Cue</tspan><tspan fill="#B8F56D">viq</tspan></text>
+</svg>

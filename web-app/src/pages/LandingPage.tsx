@@ -1,25 +1,77 @@
-import { useEffect, useRef, useState } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type MouseEvent,
+} from 'react';
 import { Link } from 'react-router-dom';
 import Header from '../components/Header';
 import Footer from '../components/Footer';
 import { DownloadContent } from './DownloadPage';
 import { isAuthSession } from '../api/client';
 
-export default function LandingPage() {
+type IconName =
+  | 'mic'
+  | 'listen'
+  | 'screen'
+  | 'shield'
+  | 'spark'
+  | 'context'
+  | 'download'
+  | 'account'
+  | 'modes'
+  | 'bolt';
 
+function LineIcon({ name, size = 24 }: { name: IconName; size?: number }) {
+  const props = {
+    width: size,
+    height: size,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.8,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+    'aria-hidden': true,
+  };
+
+  switch (name) {
+    case 'mic':
+      return <svg {...props}><rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5.5 10a6.5 6.5 0 0 0 13 0M12 16.5V22M8.5 22h7" /></svg>;
+    case 'listen':
+      return <svg {...props}><path d="M4 12a8 8 0 0 1 16 0M4 12v5a2 2 0 0 0 2 2h2v-7H4ZM20 12v5a2 2 0 0 1-2 2h-2v-7h4ZM16 19c0 1.7-1.8 3-4 3" /></svg>;
+    case 'screen':
+      return <svg {...props}><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8M12 17v4M8 9h8M8 12h5" /></svg>;
+    case 'shield':
+      return <svg {...props}><path d="M12 3 20 6v5c0 5.2-3.4 8.4-8 10-4.6-1.6-8-4.8-8-10V6l8-3Z" /><path d="m9 12 2 2 4-4" /></svg>;
+    case 'spark':
+      return <svg {...props}><path d="m12 3 1.4 4.1L17.5 8.5l-4.1 1.4L12 14l-1.4-4.1-4.1-1.4 4.1-1.4L12 3ZM18.5 14l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2ZM6 14l.9 2.6 2.6.9-2.6.9L6 21l-.9-2.6-2.6-.9 2.6-.9L6 14Z" /></svg>;
+    case 'context':
+      return <svg {...props}><path d="M8 4h8M9 2v4M15 2v4" /><rect x="4" y="5" width="16" height="16" rx="3" /><path d="M8 10h8M8 14h5M8 18h3" /></svg>;
+    case 'download':
+      return <svg {...props}><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14" /></svg>;
+    case 'account':
+      return <svg {...props}><circle cx="12" cy="8" r="4" /><path d="M4.5 21a7.5 7.5 0 0 1 15 0" /></svg>;
+    case 'modes':
+      return <svg {...props}><rect x="3" y="3" width="7" height="7" rx="2" /><rect x="14" y="3" width="7" height="7" rx="2" /><rect x="3" y="14" width="7" height="7" rx="2" /><path d="M17.5 14v7M14 17.5h7" /></svg>;
+    case 'bolt':
+      return <svg {...props}><path d="m13 2-8 12h7l-1 8 8-12h-7l1-8Z" /></svg>;
+  }
+}
+
+export default function LandingPage() {
   return (
     <>
       <Header />
-      <main>
+      <main className="landing-page">
         <HeroSection />
-        {/* <TrustedBySection /> */}
         <FeaturesSection />
         <HowItWorksSection />
         <DemoSection />
         <PricingSection />
-        <InvisibleSection />
-        {/* <TestimonialsSection /> */}
-        <section id="download" className="section">
+        <PrivateSection />
+        <section id="download" className="section download-section">
           <div className="container">
             <DownloadContent compact />
           </div>
@@ -32,310 +84,199 @@ export default function LandingPage() {
   );
 }
 
-/* ===== Hero ===== */
 function HeroSection() {
   const authed = isAuthSession();
-  const line1 = 'Ace Every Interview';
-  const line2 = 'Before the Interviewer Finishes the Question';
+  const line1 = 'Walk in prepared.';
+  const line2 = 'Answer with confidence.';
   const fullLength = line1.length + line2.length;
-  const [charIndex, setCharIndex] = useState(0);
+  const prefersReducedMotion =
+    typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const [charIndex, setCharIndex] = useState(prefersReducedMotion ? fullLength : 0);
 
   useEffect(() => {
-    if (charIndex < fullLength) {
-      const timeout = setTimeout(() => {
-        setCharIndex(charIndex + 1);
-      }, 45);
-      return () => clearTimeout(timeout);
-    }
-  }, [charIndex]);
+    if (charIndex >= fullLength) return;
+    const timeout = window.setTimeout(() => setCharIndex((current) => current + 1), 38);
+    return () => window.clearTimeout(timeout);
+  }, [charIndex, fullLength]);
 
   const displayedLine1 = line1.slice(0, Math.min(charIndex, line1.length));
   const displayedLine2 = charIndex > line1.length ? line2.slice(0, charIndex - line1.length) : '';
   const showCursor = charIndex < fullLength;
 
   return (
-    <section style={hero.container}>
-      <div style={hero.glow1} />
-      <div style={hero.glow2} />
-      <div style={hero.content}>
-        <span style={hero.badge}>AI-Powered Interview Co-Pilot</span>
-        <h1 style={hero.title}>
-          {displayedLine1}
-          {showCursor && charIndex <= line1.length && <span style={{ color: '#3b82f6', animation: 'blink 1s step-end infinite' }}>|</span>}
-          {charIndex > line1.length && <br />}
-          {displayedLine2 && <span style={hero.gradientText}>{displayedLine2}</span>}
-          {showCursor && charIndex > line1.length && <span style={{ color: '#3b82f6', animation: 'blink 1s step-end infinite' }}>|</span>}
-        </h1>
-        <p style={hero.subtitle}>
-          Real-time AI answers delivered in under 2 seconds. Works invisibly during screen sharing,
-          listens passively to interviewer questions, and even analyzes coding problems from your screen.
-        </p>
-        <div style={hero.buttons}>
-          <Link to="/download" className="btn btn-green btn-lg">
-            Download Free
-          </Link>
-          <Link to={authed ? '/wallet' : '/register'} className="btn btn-outline btn-lg">
-            {authed ? 'Go to My Wallet' : 'Get Started Online'}
-          </Link>
+    <section className="hero-section">
+      <div className="hero-grid-pattern" aria-hidden="true" />
+      <div className="hero-glow hero-glow-one" aria-hidden="true" />
+      <div className="hero-glow hero-glow-two" aria-hidden="true" />
+
+      <div className="container hero-layout">
+        <div className="hero-copy">
+          <div className="eyebrow-pill">
+            <span className="status-dot" />
+            Your calm, real-time interview co-pilot
+          </div>
+          <h1 className="hero-title" aria-label={`${line1} ${line2}`}>
+            <span aria-hidden="true">
+              {displayedLine1}
+              {showCursor && charIndex <= line1.length && <span className="typing-cursor">|</span>}
+              {charIndex > line1.length && <br />}
+              {displayedLine2 && <span className="hero-title-accent">{displayedLine2}</span>}
+              {showCursor && charIndex > line1.length && <span className="typing-cursor">|</span>}
+            </span>
+          </h1>
+          <p className="hero-subtitle">
+            Cueviq listens, understands, and turns interview questions into clear, role-aware guidance in seconds—without interrupting your flow.
+          </p>
+          <div className="hero-actions">
+            <Link to="/download" className="btn btn-primary btn-lg">
+              Download for free
+              <span aria-hidden="true">→</span>
+            </Link>
+            <Link to={authed ? '/wallet' : '/register'} className="btn btn-quiet btn-lg">
+              {authed ? 'Open my wallet' : 'Create an account'}
+            </Link>
+          </div>
+          <div className="hero-note">
+            <span className="hero-note-check">✓</span>
+            Windows &amp; macOS
+            <span className="hero-note-separator" />
+            ₹50 starter credit
+            <span className="hero-note-separator" />
+            No card required
+          </div>
         </div>
-        <p style={hero.note}>Available for Windows & macOS. ₹50 free wallet credit on signup — no credit card required.</p>
-      </div>
-    </section>
-  );
-}
 
-const hero: Record<string, React.CSSProperties> = {
-  container: {
-    position: 'relative',
-    padding: '140px 24px 100px',
-    textAlign: 'center',
-    overflow: 'hidden',
-    background: 'radial-gradient(ellipse 80% 60% at 50% -20%, rgba(59, 130, 246, 0.15), transparent 70%), radial-gradient(ellipse 60% 50% at 80% 80%, rgba(139, 92, 246, 0.1), transparent 70%)',
-  },
-  glow1: {
-    position: 'absolute',
-    top: '-200px',
-    left: '50%',
-    transform: 'translateX(-50%)',
-    width: 600,
-    height: 400,
-    background: 'radial-gradient(circle, rgba(59, 130, 246, 0.15), transparent 70%)',
-    pointerEvents: 'none',
-  },
-  glow2: {
-    position: 'absolute',
-    bottom: '-100px',
-    left: '20%',
-    width: 500,
-    height: 300,
-    background: 'radial-gradient(circle, rgba(139, 92, 246, 0.1), transparent 70%)',
-    pointerEvents: 'none',
-  },
-  content: {
-    position: 'relative',
-    maxWidth: 800,
-    margin: '0 auto',
-  },
-  badge: {
-    display: 'inline-block',
-    fontSize: 13,
-    fontWeight: 600,
-    color: '#60a5fa',
-    background: 'rgba(59, 130, 246, 0.12)',
-    padding: '6px 16px',
-    borderRadius: 100,
-    marginBottom: 24,
-    letterSpacing: '0.02em',
-  },
-  title: {
-    fontSize: 'clamp(2.4rem, 5vw, 3.8rem)',
-    fontWeight: 900,
-    lineHeight: 1.1,
-    color: '#f1f5f9',
-    marginBottom: 24,
-    letterSpacing: '-0.025em',
-  },
-  gradientText: {
-    background: 'linear-gradient(135deg, #38bdf8 0%, #818cf8 40%, #c084fc 100%)',
-    WebkitBackgroundClip: 'text',
-    WebkitTextFillColor: 'transparent',
-    backgroundClip: 'text',
-  },
-  subtitle: {
-    fontSize: '1.15rem',
-    color: '#94a3b8',
-    maxWidth: 620,
-    margin: '0 auto 36px',
-    lineHeight: 1.7,
-  },
-  buttons: {
-    display: 'flex',
-    gap: 14,
-    justifyContent: 'center',
-    flexWrap: 'wrap' as const,
-    marginBottom: 20,
-  },
-  note: {
-    fontSize: 13,
-    color: '#64748b',
-  },
-};
-
-/* ===== Trusted By ===== */
-// function TrustedBySection() {
-//   return (
-//     <section style={trusted.container}>
-//       <p style={trusted.label}>Trusted by 10,000+ job seekers worldwide</p>
-//       <div style={trusted.stats}>
-//         {[
-//           { value: '10K+', label: 'Users' },
-//           { value: '50K+', label: 'Interviews Cracked' },
-//           { value: '2s', label: 'Avg Response Time' },
-//           { value: '98%', label: 'Success Rate' },
-//         ].map((s) => (
-//           <div key={s.label} style={trusted.stat}>
-//             <span style={trusted.statValue}>{s.value}</span>
-//             <span style={trusted.statLabel}>{s.label}</span>
-//           </div>
-//         ))}
-//       </div>
-//     </section>
-//   );
-// }
-
-// const trusted: Record<string, React.CSSProperties> = {
-//   container: {
-//     padding: '40px 24px',
-//     textAlign: 'center',
-//     borderTop: '1px solid rgba(255,255,255,0.04)',
-//     borderBottom: '1px solid rgba(255,255,255,0.04)',
-//     background: 'rgba(255,255,255,0.01)',
-//   },
-//   label: { fontSize: 14, color: '#64748b', marginBottom: 28 },
-//   stats: {
-//     display: 'flex',
-//     justifyContent: 'center',
-//     gap: 60,
-//     flexWrap: 'wrap' as const,
-//   },
-//   stat: { display: 'flex', flexDirection: 'column' as const, alignItems: 'center', gap: 4 },
-//   statValue: { fontSize: '1.8rem', fontWeight: 800, color: '#f1f5f9' },
-//   statLabel: { fontSize: 13, color: '#64748b' },
-// };
-
-/* ===== Features ===== */
-function FeaturesSection() {
-  const features = [
-    {
-      icon: '🎙️',
-      title: 'Manual Mode',
-      desc: 'Speak a question and get an instant AI answer within 2 seconds. Perfect for behavioral and technical rounds.',
-      color: '#3b82f6',
-      bg: 'rgba(59, 130, 246, 0.08)',
-    },
-    {
-      icon: '👁️',
-      title: 'Passive Mode',
-      desc: 'The app listens to the interviewer\'s questions through system audio and automatically provides answers — no input needed.',
-      color: '#8b5cf6',
-      bg: 'rgba(139, 92, 246, 0.08)',
-    },
-    {
-      icon: '🖥️',
-      title: 'Screen Analyzer',
-      desc: 'Capture screenshots of coding problems, SQL questions, or MCQs on your screen and get complete solutions instantly.',
-      color: '#14b8a6',
-      bg: 'rgba(20, 184, 166, 0.08)',
-    },
-    {
-      icon: '🔒',
-      title: '100% Undetectable',
-      desc: 'Invisible during screen sharing and screen recording. Works on all platforms — Zoom, Teams, Google Meet, HackerRank, and more.',
-      color: '#f59e0b',
-      bg: 'rgba(245, 158, 11, 0.08)',
-    },
-    {
-      icon: '🧠',
-      title: 'Advanced AI',
-      desc: 'State-of-the-art reasoning and real-time response generation tuned for technical and behavioral interview scenarios.',
-      color: '#ec4899',
-      bg: 'rgba(236, 72, 153, 0.08)',
-    },
-    {
-      icon: '⚡',
-      title: 'Context-Aware',
-      desc: 'Upload your resume and job description. Every answer is tailored to your experience and the target role for maximum relevance.',
-      color: '#22c55e',
-      bg: 'rgba(34, 197, 94, 0.08)',
-    },
-  ];
-
-  return (
-    <section id="features" className="section">
-      <div className="container" style={{ textAlign: 'center' as const }}>
-        <span className="section-label">Features</span>
-        <h2 className="section-title" style={{ maxWidth: 700, margin: '0 auto 16px' }}>
-          Everything You Need to Win Interviews
-        </h2>
-        <p className="section-subtitle" style={{ margin: '0 auto 60px' }}>
-          Three powerful modes. One invisible assistant. No interviewer will ever know.
-        </p>
-
-        <div style={featuresGrid.grid}>
-          {features.map((f, i) => (
-            <div key={i} style={{ ...featuresGrid.card, borderColor: `${f.color}20` }}>
-              <div style={{ ...featuresGrid.iconWrap, background: f.bg, color: f.color }}>
-                <span style={featuresGrid.iconEmoji}>{f.icon}</span>
+        <div className="hero-visual" role="img" aria-label="Illustration of a Cueviq interview session">
+          <div className="hero-panel-orbit" aria-hidden="true" />
+          <div className="assistant-panel">
+            <div className="assistant-topbar">
+              <div className="assistant-brand">
+                <span className="assistant-mark"><LineIcon name="spark" size={16} /></span>
+                <span>Cueviq session</span>
               </div>
-              <h3 style={featuresGrid.cardTitle}>{f.title}</h3>
-              <p style={featuresGrid.cardDesc}>{f.desc}</p>
+              <div className="live-pill"><span /> Live</div>
             </div>
-          ))}
+
+            <div className="mode-row" aria-label="Passive mode is active">
+              <span className="mode-chip mode-chip-active"><LineIcon name="listen" size={14} /> Passive</span>
+              <span className="mode-chip">Manual</span>
+              <span className="mode-chip">Screen</span>
+            </div>
+
+            <div className="transcript-card">
+              <div className="speaker-row">
+                <span className="speaker-avatar">IN</span>
+                <div>
+                  <strong>Interviewer</strong>
+                  <span>Just now</span>
+                </div>
+              </div>
+              <p>“How would you design a system that stays reliable as traffic grows?”</p>
+              <div className="waveform" aria-hidden="true">
+                <span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span />
+              </div>
+            </div>
+
+            <div className="answer-card">
+              <div className="answer-heading">
+                <span><LineIcon name="spark" size={16} /> Suggested approach</span>
+                <span className="latency-pill">1.8s</span>
+              </div>
+              <p>
+                Start with clear reliability targets, then separate stateless services from durable data. Add caching and queues where they reduce pressure…
+              </p>
+              <div className="answer-tags">
+                <span>Structured</span>
+                <span>Role-aware</span>
+                <span>Concise</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="floating-card floating-card-context" aria-hidden="true">
+            <span><LineIcon name="context" size={17} /></span>
+            Resume context on
+          </div>
+          <div className="floating-card floating-card-speed" aria-hidden="true">
+            <strong>&lt; 2 sec</strong>
+            response time
+          </div>
         </div>
+      </div>
+
+      <div className="container hero-proof" aria-label="Cueviq product highlights">
+        <div><strong>3</strong><span>focused modes</span></div>
+        <div><strong>&lt;2s</strong><span>typical response</span></div>
+        <div><strong>24/7</strong><span>ready when you are</span></div>
+        <div><strong>₹5</strong><span>per active minute</span></div>
       </div>
     </section>
   );
 }
 
-const featuresGrid: Record<string, React.CSSProperties> = {
-  grid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-    gap: 24,
-    maxWidth: 1000,
-    margin: '0 auto',
-  },
-  card: {
-    background: 'rgba(255, 255, 255, 0.02)',
-    border: '1px solid',
-    borderRadius: 14,
-    padding: '36px 28px',
-    textAlign: 'left' as const,
-    transition: 'border-color 0.2s, transform 0.2s',
-  },
-  iconWrap: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 20,
-    fontSize: 24,
-  },
-  iconEmoji: { lineHeight: 1 },
-  cardTitle: { fontSize: 17, fontWeight: 700, color: '#f1f5f9', marginBottom: 10 },
-  cardDesc: { fontSize: 14, color: '#94a3b8', lineHeight: 1.65 },
-};
-
-/* ===== How It Works ===== */
-function HowItWorksSection() {
-  const steps = [
-    { step: '01', title: 'Download & Install', desc: 'Get the app for Windows or macOS. One-click install, no configuration needed.' },
-    { step: '02', title: 'Create Account', desc: 'Register with your email. Get ₹50 free wallet credit to start — pay just ₹5/min after.' },
-    { step: '03', title: 'Choose Your Mode', desc: 'Pick Manual, Passive, or Screen Analyzer based on the interview format.' },
-    { step: '04', title: 'Get AI Answers', desc: 'The AI listens or reads your screen and delivers answers in under 2 seconds — invisible to the interviewer.' },
+function FeaturesSection() {
+  const features: Array<{ icon: IconName; title: string; desc: string; tone: string }> = [
+    {
+      icon: 'mic',
+      title: 'Ask on your terms',
+      desc: 'Use Manual Mode for a direct question and receive a clear answer in seconds.',
+      tone: 'lime',
+    },
+    {
+      icon: 'listen',
+      title: 'Stay in the conversation',
+      desc: 'Passive Mode listens to system audio and prepares guidance while you stay present.',
+      tone: 'blue',
+    },
+    {
+      icon: 'screen',
+      title: 'Understand what is on screen',
+      desc: 'Turn coding tasks, SQL prompts, and technical questions into structured solutions.',
+      tone: 'violet',
+    },
+    {
+      icon: 'context',
+      title: 'Make every answer sound like you',
+      desc: 'Add your resume and target role so suggestions match your experience and vocabulary.',
+      tone: 'orange',
+    },
+    {
+      icon: 'bolt',
+      title: 'Move at interview speed',
+      desc: 'Streaming responses appear as they are generated, so useful context arrives without a pause.',
+      tone: 'pink',
+    },
+    {
+      icon: 'shield',
+      title: 'Keep your workspace private',
+      desc: 'A discreet desktop overlay is designed to stay out of shared screens and recordings.',
+      tone: 'teal',
+    },
   ];
 
   return (
-    <section id="how-it-works" className="section" style={{ background: 'rgba(255,255,255,0.015)' }}>
-      <div className="container" style={{ textAlign: 'center' as const }}>
-        <span className="section-label">How It Works</span>
-        <h2 className="section-title" style={{ maxWidth: 600, margin: '0 auto 16px' }}>
-          Start Cracking Interviews in 4 Steps
-        </h2>
-        <p className="section-subtitle" style={{ margin: '0 auto 60px' }}>
-          No complex setup. Download, sign up, and you're ready for your next interview.
-        </p>
+    <section id="features" className="section features-section">
+      <div className="container">
+        <div className="section-heading section-heading-split">
+          <div>
+            <span className="section-label">Built for the moment</span>
+            <h2 className="section-title">Less noise. More useful thinking.</h2>
+          </div>
+          <p className="section-subtitle">
+            Everything is designed to keep you focused on the person in front of you—not on another complicated tool.
+          </p>
+        </div>
 
-        <div style={how.grid}>
-          {steps.map((s, i) => (
-            <div key={i} style={how.card}>
-              <span style={how.step}>{s.step}</span>
-              <h3 style={how.title}>{s.title}</h3>
-              <p style={how.desc}>{s.desc}</p>
-              {i < steps.length - 1 && <div style={how.connector}>→</div>}
-            </div>
+        <div className="feature-grid">
+          {features.map((feature, index) => (
+            <article className={`feature-card feature-card-${index + 1}`} key={feature.title}>
+              <div className={`feature-icon feature-icon-${feature.tone}`}><LineIcon name={feature.icon} /></div>
+              <div>
+                <h3>{feature.title}</h3>
+                <p>{feature.desc}</p>
+              </div>
+              <span className="feature-index">0{index + 1}</span>
+            </article>
           ))}
         </div>
       </div>
@@ -343,30 +284,41 @@ function HowItWorksSection() {
   );
 }
 
-const how: Record<string, React.CSSProperties> = {
-  grid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-    gap: 32,
-    maxWidth: 1000,
-    margin: '0 auto',
-  },
-  card: {
-    position: 'relative',
-    background: 'rgba(255, 255, 255, 0.025)',
-    border: '1px solid rgba(255, 255, 255, 0.06)',
-    borderRadius: 14,
-    padding: '40px 24px 32px',
-    textAlign: 'center' as const,
-  },
-  step: { display: 'block', fontSize: '2rem', fontWeight: 900, color: '#3b82f6', marginBottom: 16, opacity: 0.7 },
-  title: { fontSize: 17, fontWeight: 700, color: '#f1f5f9', marginBottom: 10 },
-  desc: { fontSize: 14, color: '#94a3b8', lineHeight: 1.6 },
-  connector: { display: 'none' },
-};
+function HowItWorksSection() {
+  const steps: Array<{ icon: IconName; title: string; desc: string }> = [
+    { icon: 'download', title: 'Install Cueviq', desc: 'Choose Windows or macOS and finish the one-click setup.' },
+    { icon: 'account', title: 'Add your context', desc: 'Create your account, then add the resume and role you are targeting.' },
+    { icon: 'modes', title: 'Pick a mode', desc: 'Use Manual, Passive, or Screen Analyzer for the interview in front of you.' },
+    { icon: 'bolt', title: 'Stay in flow', desc: 'Get concise, context-aware guidance while you keep the conversation natural.' },
+  ];
 
-/* ===== Demo Video ===== */
-// A chapter marks WHERE (in seconds) a section starts within the single merged video.
+  return (
+    <section id="how-it-works" className="section process-section">
+      <div className="container">
+        <div className="section-heading centered-heading">
+          <span className="section-label">Simple by design</span>
+          <h2 className="section-title">Ready before your next call.</h2>
+          <p className="section-subtitle">Four small steps. No complicated configuration or learning curve.</p>
+        </div>
+
+        <div className="process-grid">
+          {steps.map((step, index) => (
+            <article className="process-card" key={step.title}>
+              <div className="process-topline">
+                <span className="process-icon"><LineIcon name={step.icon} /></span>
+                <span className="process-number">0{index + 1}</span>
+              </div>
+              <h3>{step.title}</h3>
+              <p>{step.desc}</p>
+              {index < steps.length - 1 && <span className="process-connector" aria-hidden="true">→</span>}
+            </article>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 type Chapter = { title: string; start: number };
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
@@ -388,20 +340,21 @@ function VideoPlayer({ src, poster, chapters }: { src: string; poster?: string; 
   const [hoverChapter, setHoverChapter] = useState<number | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const fmt = (s: number) => {
-    if (!isFinite(s)) return '0:00';
-    const m = Math.floor(s / 60);
-    const sec = Math.floor(s % 60);
-    return `${m}:${sec.toString().padStart(2, '0')}`;
+  const formatTime = (seconds: number) => {
+    if (!Number.isFinite(seconds)) return '0:00';
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = Math.floor(seconds % 60);
+    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
   };
 
-  // Compute each chapter's [start, end] window along the timeline.
-  const segments = chapters.map((ch, i) => ({
-    ...ch,
-    end: i < chapters.length - 1 ? chapters[i + 1]!.start : duration,
+  const segments = chapters.map((chapter, index) => ({
+    ...chapter,
+    end: index < chapters.length - 1 ? chapters[index + 1]!.start : duration,
   }));
-
-  const activeChapter = segments.reduce((acc, seg, i) => (currentTime >= seg.start ? i : acc), 0);
+  const activeChapter = segments.reduce(
+    (active, segment, index) => (currentTime >= segment.start ? index : active),
+    0,
+  );
 
   const resetHideTimer = () => {
     setShowControls(true);
@@ -410,187 +363,219 @@ function VideoPlayer({ src, poster, chapters }: { src: string; poster?: string; 
   };
 
   useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    const onTime = () => {
-      setCurrentTime(v.currentTime);
-      if (v.buffered.length) setBuffered((v.buffered.end(v.buffered.length - 1) / v.duration) * 100);
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handleTimeUpdate = () => {
+      setCurrentTime(video.currentTime);
+      if (video.buffered.length && video.duration) {
+        setBuffered((video.buffered.end(video.buffered.length - 1) / video.duration) * 100);
+      }
     };
-    const onMeta = () => setDuration(v.duration);
-    const onEnd = () => { setPlaying(false); setShowControls(true); };
-    v.addEventListener('timeupdate', onTime);
-    v.addEventListener('loadedmetadata', onMeta);
-    v.addEventListener('ended', onEnd);
-    return () => { v.removeEventListener('timeupdate', onTime); v.removeEventListener('loadedmetadata', onMeta); v.removeEventListener('ended', onEnd); };
+    const handleMetadata = () => setDuration(video.duration);
+    const handleEnded = () => {
+      setPlaying(false);
+      setShowControls(true);
+    };
+
+    video.addEventListener('timeupdate', handleTimeUpdate);
+    video.addEventListener('loadedmetadata', handleMetadata);
+    video.addEventListener('ended', handleEnded);
+    return () => {
+      video.removeEventListener('timeupdate', handleTimeUpdate);
+      video.removeEventListener('loadedmetadata', handleMetadata);
+      video.removeEventListener('ended', handleEnded);
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+    };
   }, []);
 
   useEffect(() => {
-    const onFs = () => setFullscreen(!!document.fullscreenElement);
-    document.addEventListener('fullscreenchange', onFs);
-    return () => document.removeEventListener('fullscreenchange', onFs);
+    const handleFullscreen = () => setFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', handleFullscreen);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreen);
   }, []);
 
   const togglePlay = () => {
-    const v = videoRef.current;
-    if (!v) return;
-    if (v.paused) { v.play(); setPlaying(true); } else { v.pause(); setPlaying(false); setShowControls(true); }
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.paused) {
+      void video.play();
+      setPlaying(true);
+    } else {
+      video.pause();
+      setPlaying(false);
+      setShowControls(true);
+    }
     resetHideTimer();
   };
 
-  const seekTo = (t: number) => {
-    const v = videoRef.current;
-    if (!v) return;
-    v.currentTime = Math.max(0, Math.min(t, v.duration || t));
+  const seekTo = (time: number) => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.currentTime = Math.max(0, Math.min(time, video.duration || time));
   };
 
-  // Click anywhere within a segment to seek to that exact position.
-  const seekInSegment = (e: React.MouseEvent<HTMLDivElement>, seg: { start: number; end: number }) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const frac = (e.clientX - rect.left) / rect.width;
-    seekTo(seg.start + frac * (seg.end - seg.start));
+  const seekInSegment = (event: MouseEvent<HTMLDivElement>, segment: { start: number; end: number }) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const fraction = (event.clientX - rect.left) / rect.width;
+    seekTo(segment.start + fraction * (segment.end - segment.start));
   };
 
-  const changeVolume = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = Number(e.target.value);
-    setVolume(val);
-    if (videoRef.current) videoRef.current.volume = val;
-    setMuted(val === 0);
+  const changeVolume = (event: ChangeEvent<HTMLInputElement>) => {
+    const nextVolume = Number(event.target.value);
+    setVolume(nextVolume);
+    if (videoRef.current) videoRef.current.volume = nextVolume;
+    setMuted(nextVolume === 0);
   };
 
   const toggleMute = () => {
-    if (!videoRef.current) return;
-    const next = !muted;
-    setMuted(next);
-    videoRef.current.muted = next;
+    const video = videoRef.current;
+    if (!video) return;
+    const nextMuted = !muted;
+    setMuted(nextMuted);
+    video.muted = nextMuted;
   };
 
-  const changeSpeed = (s: number) => {
-    setSpeed(s);
-    if (videoRef.current) videoRef.current.playbackRate = s;
+  const changeSpeed = (nextSpeed: number) => {
+    setSpeed(nextSpeed);
+    if (videoRef.current) videoRef.current.playbackRate = nextSpeed;
     setShowSpeed(false);
   };
 
   const toggleFullscreen = () => {
     if (!containerRef.current) return;
-    if (!document.fullscreenElement) containerRef.current.requestFullscreen();
-    else document.exitFullscreen();
+    if (!document.fullscreenElement) void containerRef.current.requestFullscreen();
+    else void document.exitFullscreen();
   };
 
-  const volIcon = muted || volume === 0 ? '🔇' : volume < 0.5 ? '🔉' : '🔊';
+  const volumeIcon = muted || volume === 0 ? '🔇' : volume < 0.5 ? '🔉' : '🔊';
 
   return (
-    <div style={demo.videoWrap}>
-      <div
-        ref={containerRef}
-        onMouseMove={resetHideTimer}
-        onMouseLeave={() => playing && setShowControls(false)}
-        style={demo.playerWrap}
-      >
-        <video
-          ref={videoRef}
-          src={src}
-          poster={poster}
-          onClick={togglePlay}
-          style={{ width: '100%', height: '100%', display: 'block', cursor: 'pointer', objectFit: 'contain', background: '#000' }}
-        />
+    <div
+      ref={containerRef}
+      className={`video-player${fullscreen ? ' is-fullscreen' : ''}`}
+      onMouseMove={resetHideTimer}
+      onMouseLeave={() => playing && setShowControls(false)}
+    >
+      <video
+        ref={videoRef}
+        src={src}
+        poster={poster}
+        preload="metadata"
+        onClick={togglePlay}
+        className="video-element"
+      />
 
-        {/* Big play button overlay when paused */}
-        {!playing && (
-          <div onClick={togglePlay} style={demo.bigPlay}>
-            <div style={demo.bigPlayCircle}>
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
-            </div>
-          </div>
-        )}
+      {!playing && (
+        <button className="video-play-overlay" onClick={togglePlay} aria-label="Play the Cueviq product tour">
+          <span className="video-play-button">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+          </span>
+          <span>Watch product tour</span>
+        </button>
+      )}
 
-        {/* Current chapter title badge */}
-        {chapters.length > 0 && (
-          <div style={{ ...demo.titleBadge, opacity: showControls ? 1 : 0 }}>
-            {chapters[activeChapter]?.title}
-          </div>
-        )}
+      {chapters.length > 0 && (
+        <div className="video-chapter-badge" style={{ opacity: showControls ? 1 : 0 }}>
+          {chapters[activeChapter]?.title}
+        </div>
+      )}
 
-        {/* Controls bar */}
-        <div style={{ ...demo.controls, opacity: showControls ? 1 : 0, transition: 'opacity 0.3s' }}>
-          {/* Segmented progress bar (YouTube-style chapters) */}
-          <div style={demo.segmentBar}>
-            {(duration ? segments : [{ title: '', start: 0, end: duration }]).map((seg, i) => {
-              const segLen = seg.end - seg.start || 1;
-              const fill = Math.max(0, Math.min(1, (currentTime - seg.start) / segLen)) * 100;
-              const buf = Math.max(0, Math.min(1, ((buffered / 100) * duration - seg.start) / segLen)) * 100;
-              const isHover = hoverChapter === i;
-              return (
-                <div
-                  key={i}
-                  onClick={(e) => seekInSegment(e, seg)}
-                  onMouseEnter={() => setHoverChapter(i)}
-                  onMouseLeave={() => setHoverChapter(null)}
-                  style={{ ...demo.segment, flexGrow: segLen }}
-                  title={seg.title}
-                >
-                  <div style={{ ...demo.segTrack, height: isHover ? 6 : 4 }}>
-                    <div style={{ ...demo.segBuf, width: `${buf}%` }} />
-                    <div style={{ ...demo.segFill, width: `${fill}%` }} />
-                  </div>
-                  {/* Chapter tooltip on hover */}
-                  {isHover && seg.title && (
-                    <div style={demo.segTooltip}>{seg.title}</div>
-                  )}
+      <div className="video-controls" style={{ opacity: showControls ? 1 : 0 }}>
+        <div className="video-segments">
+          {(duration ? segments : [{ title: '', start: 0, end: duration }]).map((segment, index) => {
+            const segmentLength = segment.end - segment.start || 1;
+            const fill = Math.max(0, Math.min(1, (currentTime - segment.start) / segmentLength)) * 100;
+            const bufferedFill = Math.max(
+              0,
+              Math.min(1, ((buffered / 100) * duration - segment.start) / segmentLength),
+            ) * 100;
+            const hovered = hoverChapter === index;
+
+            return (
+              <div
+                key={`${segment.title}-${index}`}
+                className="video-segment"
+                onClick={(event) => seekInSegment(event, segment)}
+                onMouseEnter={() => setHoverChapter(index)}
+                onMouseLeave={() => setHoverChapter(null)}
+                style={{ flexGrow: segmentLength }}
+                title={segment.title}
+              >
+                <div className="video-segment-track" style={{ height: hovered ? 6 : 4 }}>
+                  <div className="video-segment-buffer" style={{ width: `${bufferedFill}%` }} />
+                  <div className="video-segment-fill" style={{ width: `${fill}%` }} />
                 </div>
-              );
-            })}
-          </div>
+                {hovered && segment.title && <div className="video-segment-tooltip">{segment.title}</div>}
+              </div>
+            );
+          })}
+        </div>
 
-          <div style={demo.controlsRow}>
-            {/* Play/Pause */}
-            <button onClick={togglePlay} style={demo.ctrlBtn} title={playing ? 'Pause' : 'Play'}>
-              {playing
-                ? <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M6 19h4V5H6zm8-14v14h4V5z"/></svg>
-                : <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>}
-            </button>
-
-            {/* Volume */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}
-              onMouseEnter={() => setShowVolume(true)} onMouseLeave={() => setShowVolume(false)}>
-              <button onClick={toggleMute} style={demo.ctrlBtn} title="Mute/Unmute">{volIcon}</button>
-              {showVolume && (
-                <input type="range" min={0} max={1} step={0.05} value={muted ? 0 : volume}
-                  onChange={changeVolume} style={demo.volSlider} />
-              )}
-            </div>
-
-            {/* Time + current chapter name */}
-            <span style={demo.timeLabel}>{fmt(currentTime)} / {fmt(duration)}</span>
-            {chapters.length > 0 && (
-              <span style={demo.chapterNowLabel}>• {chapters[activeChapter]?.title}</span>
+        <div className="video-controls-row">
+          <button onClick={togglePlay} className="video-control-button" aria-label={playing ? 'Pause' : 'Play'}>
+            {playing ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 19h4V5H6zm8-14v14h4V5z" /></svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
             )}
+          </button>
 
-            <div style={{ flex: 1 }} />
-
-            {/* Playback speed */}
-            <div style={{ position: 'relative' }}>
-              <button onClick={() => setShowSpeed((s) => !s)} style={{ ...demo.ctrlBtn, fontSize: 13, fontWeight: 600, color: '#fff' }} title="Playback speed">
-                {speed}x
-              </button>
-              {showSpeed && (
-                <div style={demo.speedMenu}>
-                  {SPEEDS.map((s) => (
-                    <button key={s} onClick={() => changeSpeed(s)}
-                      style={{ ...demo.speedItem, ...(s === speed ? demo.speedItemActive : {}) }}>
-                      {s === 1 ? 'Normal' : `${s}x`}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Fullscreen */}
-            <button onClick={toggleFullscreen} style={demo.ctrlBtn} title="Fullscreen">
-              {fullscreen
-                ? <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M5 16h3v3h2v-5H5zm3-8H5v2h5V5H8zm6 11h2v-3h3v-2h-5zm2-11V5h-2v5h5V8z"/></svg>
-                : <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M7 14H5v5h5v-2H7zm-2-4h2V7h3V5H5zm12 7h-3v2h5v-5h-2zM14 5v2h3v3h2V5z"/></svg>}
-            </button>
+          <div
+            className="video-volume-control"
+            onMouseEnter={() => setShowVolume(true)}
+            onMouseLeave={() => setShowVolume(false)}
+          >
+            <button onClick={toggleMute} className="video-control-button" aria-label="Mute or unmute">{volumeIcon}</button>
+            {showVolume && (
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={muted ? 0 : volume}
+                onChange={changeVolume}
+                className="video-volume-slider"
+                aria-label="Video volume"
+              />
+            )}
           </div>
+
+          <span className="video-time">{formatTime(currentTime)} / {formatTime(duration)}</span>
+          {chapters.length > 0 && <span className="video-current-chapter">• {chapters[activeChapter]?.title}</span>}
+          <span className="video-controls-spacer" />
+
+          <div className="video-speed-control">
+            <button
+              onClick={() => setShowSpeed((open) => !open)}
+              className="video-control-button video-speed-button"
+              aria-label="Playback speed"
+              aria-expanded={showSpeed}
+            >
+              {speed}x
+            </button>
+            {showSpeed && (
+              <div className="video-speed-menu">
+                {SPEEDS.map((option) => (
+                  <button
+                    key={option}
+                    onClick={() => changeSpeed(option)}
+                    className={option === speed ? 'is-active' : ''}
+                  >
+                    {option === 1 ? 'Normal' : `${option}x`}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <button onClick={toggleFullscreen} className="video-control-button" aria-label={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}>
+            {fullscreen ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 16h3v3h2v-5H5zm3-8H5v2h5V5H8zm6 11h2v-3h3v-2h-5zm2-11V5h-2v5h5V8z" /></svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 14H5v5h5v-2H7zm-2-4h2V7h3V5H5zm12 7h-3v2h5v-5h-2zM14 5v2h3v3h2V5z" /></svg>
+            )}
+          </button>
         </div>
       </div>
     </div>
@@ -598,8 +583,6 @@ function VideoPlayer({ src, poster, chapters }: { src: string; poster?: string; 
 }
 
 function DemoSection() {
-  // ⬇️ One merged video. `start` = seconds where each section begins.
-  // Update these timestamps to match your merged file.
   const chapters: Chapter[] = [
     { title: 'Installation on Windows', start: 0 },
     { title: 'Installation on Mac', start: 57 },
@@ -607,137 +590,35 @@ function DemoSection() {
   ];
 
   return (
-    <section className="section">
-      <div className="container" style={{ textAlign: 'center' as const }}>
-        <span className="section-label">See It In Action</span>
-        <h2 className="section-title" style={{ maxWidth: 600, margin: '0 auto 16px' }}>
-          Watch How UpNod Works
-        </h2>
-        <p className="section-subtitle" style={{ margin: '0 auto 48px' }}>
-          See all three modes — Manual, Passive, and Screen Analyzer — in a real interview scenario.
-        </p>
+    <section className="section demo-section">
+      <div className="container">
+        <div className="section-heading centered-heading">
+          <span className="section-label">See the flow</span>
+          <h2 className="section-title">A quiet tool in a high-pressure moment.</h2>
+          <p className="section-subtitle">Take a quick tour of setup, the three modes, and a real Cueviq workflow.</p>
+        </div>
 
-        <VideoPlayer
-          src="/videos/setup-guide.mp4"
-          poster="/videos/setup-guide.jpg"
-          chapters={chapters}
-        />
+        <div className="demo-frame">
+          <div className="demo-frame-bar">
+            <div className="window-dots" aria-hidden="true"><span /><span /><span /></div>
+            <span>Cueviq product tour</span>
+            <span className="demo-frame-meta">Windows + macOS</span>
+          </div>
+          <VideoPlayer
+            src="/videos/setup-guide.mp4"
+            poster="/videos/setup-guide-poster.svg"
+            chapters={chapters}
+          />
+        </div>
       </div>
     </section>
   );
 }
 
-const demo: Record<string, React.CSSProperties> = {
-  videoWrap: {
-    maxWidth: 860,
-    margin: '0 auto',
-    borderRadius: 16,
-    overflow: 'hidden',
-    border: '1px solid rgba(255,255,255,0.08)',
-    background: '#000',
-    boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
-  },
-  playerWrap: {
-    position: 'relative',
-    width: '100%',
-    aspectRatio: '16/9',
-    background: '#000',
-    userSelect: 'none',
-  },
-  titleBadge: {
-    position: 'absolute', top: 0, left: 0, right: 0,
-    padding: '14px 18px',
-    background: 'linear-gradient(rgba(0,0,0,0.7), transparent)',
-    color: '#fff', fontSize: 14, fontWeight: 600, textAlign: 'left',
-    transition: 'opacity 0.3s', pointerEvents: 'none',
-  },
-  bigPlay: {
-    position: 'absolute', inset: 0,
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    cursor: 'pointer',
-  },
-  bigPlayCircle: {
-    width: 72, height: 72, borderRadius: '50%',
-    background: 'rgba(255,255,255,0.15)',
-    backdropFilter: 'blur(8px)',
-    border: '2px solid rgba(255,255,255,0.3)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    transition: 'background 0.2s',
-  },
-  controls: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
-    background: 'linear-gradient(transparent, rgba(0,0,0,0.85))',
-    padding: '32px 16px 12px',
-  },
-  segmentBar: {
-    display: 'flex', alignItems: 'center', gap: 3,
-    marginBottom: 10, height: 12,
-  },
-  segment: {
-    position: 'relative', flexBasis: 0, height: '100%',
-    display: 'flex', alignItems: 'center', cursor: 'pointer',
-  },
-  segTrack: {
-    position: 'relative', width: '100%', borderRadius: 3,
-    background: 'rgba(255,255,255,0.25)', overflow: 'hidden',
-    transition: 'height 0.1s',
-  },
-  segBuf: {
-    position: 'absolute', top: 0, left: 0, height: '100%',
-    background: 'rgba(255,255,255,0.4)', pointerEvents: 'none',
-  },
-  segFill: {
-    position: 'absolute', top: 0, left: 0, height: '100%',
-    background: '#6366f1', pointerEvents: 'none',
-  },
-  segTooltip: {
-    position: 'absolute', bottom: '160%', left: '50%',
-    transform: 'translateX(-50%)', whiteSpace: 'nowrap',
-    background: 'rgba(20,20,25,0.97)', color: '#fff',
-    padding: '5px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600,
-    pointerEvents: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
-  },
-  chapterNowLabel: {
-    color: 'rgba(255,255,255,0.85)', fontSize: 12, fontWeight: 600,
-    marginLeft: 8, whiteSpace: 'nowrap', overflow: 'hidden',
-    textOverflow: 'ellipsis', maxWidth: 200,
-  },
-  controlsRow: {
-    display: 'flex', alignItems: 'center', gap: 4,
-  },
-  ctrlBtn: {
-    background: 'none', border: 'none', cursor: 'pointer',
-    padding: '4px 6px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    opacity: 0.9, fontSize: 16,
-  },
-  timeLabel: {
-    color: 'rgba(255,255,255,0.75)', fontSize: 12, fontFamily: 'monospace', marginLeft: 4,
-  },
-  volSlider: {
-    width: 72, accentColor: '#6366f1', cursor: 'pointer',
-  },
-  speedMenu: {
-    position: 'absolute', bottom: '130%', right: 0,
-    background: 'rgba(20,20,25,0.97)', borderRadius: 8,
-    border: '1px solid rgba(255,255,255,0.1)',
-    padding: 4, display: 'flex', flexDirection: 'column',
-    minWidth: 96, boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
-  },
-  speedItem: {
-    background: 'none', border: 'none', color: 'rgba(255,255,255,0.8)',
-    padding: '7px 12px', textAlign: 'left', cursor: 'pointer',
-    fontSize: 13, borderRadius: 6, whiteSpace: 'nowrap',
-  },
-  speedItemActive: {
-    background: 'rgba(99,102,241,0.25)', color: '#fff', fontWeight: 600,
-  },
-};
-
-/* ===== Pricing ===== */
 function PricingSection() {
   const authed = isAuthSession();
-  const RATE_PER_MINUTE = 5;
-  const SIGNUP_BONUS = 50;
+  const ratePerMinute = 5;
+  const signupBonus = 50;
   const topups = [
     { rupees: 100, popular: false },
     { rupees: 300, popular: true },
@@ -745,172 +626,139 @@ function PricingSection() {
   ];
 
   return (
-    <section id="pricing" className="section" style={{ background: 'rgba(255,255,255,0.015)' }}>
-      <div className="container" style={{ textAlign: 'center' as const }}>
-        <span className="section-label">Pricing</span>
-        <h2 className="section-title" style={{ maxWidth: 600, margin: '0 auto 16px' }}>
-          Pay Only for the Minutes You Use
-        </h2>
-        <p className="section-subtitle" style={{ margin: '0 auto 40px' }}>
-          No subscriptions, no packs. A flat ₹{RATE_PER_MINUTE}/minute, charged only while an interview
-          session is running. New accounts get ₹{SIGNUP_BONUS} free to start.
-        </p>
+    <section id="pricing" className="section pricing-section">
+      <div className="container">
+        <div className="section-heading section-heading-split pricing-heading">
+          <div>
+            <span className="section-label">Honest pricing</span>
+            <h2 className="section-title">Pay for interview time. Nothing else.</h2>
+          </div>
+          <div className="price-rate-card">
+            <span>One clear rate</span>
+            <div><strong>₹{ratePerMinute}</strong><small>/ active minute</small></div>
+            <p>Wallet credit never expires.</p>
+          </div>
+        </div>
 
-        <div style={pricingGrid.grid}>
-          {topups.map((t) => {
-            const minutes = Math.floor(t.rupees / RATE_PER_MINUTE);
+        <div className="pricing-grid">
+          {topups.map((topup) => {
+            const minutes = Math.floor(topup.rupees / ratePerMinute);
             return (
-              <div key={t.rupees} style={{ ...pricingGrid.card, ...(t.popular ? pricingGrid.cardPopular : {}) }}>
-                {t.popular && <div style={pricingGrid.popularBadge}>Most Popular</div>}
-                <h3 style={pricingGrid.name}>Top up ₹{t.rupees.toLocaleString('en-IN')}</h3>
-                <p style={pricingGrid.sessions}>{minutes} min</p>
-                <p style={pricingGrid.desc}>at ₹{RATE_PER_MINUTE}/minute · never expires</p>
-                <div style={pricingGrid.priceRow}>
-                  <span style={pricingGrid.price}>₹{t.rupees.toLocaleString('en-IN')}</span>
+              <article className={`pricing-card${topup.popular ? ' is-popular' : ''}`} key={topup.rupees}>
+                {topup.popular && <span className="popular-badge">Most chosen</span>}
+                <div className="pricing-card-head">
+                  <span>Wallet top-up</span>
+                  <h3>₹{topup.rupees.toLocaleString('en-IN')}</h3>
                 </div>
-                <Link
-                  to={`/pricing?amount=${t.rupees}`}
-                  className="btn btn-primary"
-                  style={{ width: '100%', marginTop: 20 }}
-                >
-                  {authed ? `Add ₹${t.rupees.toLocaleString('en-IN')}` : 'Get Started'}
+                <div className="pricing-minute-row">
+                  <strong>{minutes}</strong>
+                  <span>interview minutes</span>
+                </div>
+                <ul>
+                  <li><span>✓</span> No subscription</li>
+                  <li><span>✓</span> Use across Windows &amp; Mac</li>
+                  <li><span>✓</span> Credit never expires</li>
+                </ul>
+                <Link to={`/pricing?amount=${topup.rupees}`} className={topup.popular ? 'btn btn-primary' : 'btn btn-quiet'}>
+                  {authed ? `Add ₹${topup.rupees.toLocaleString('en-IN')}` : 'Get started'}
                 </Link>
-              </div>
+              </article>
             );
           })}
         </div>
-        <p style={{ fontSize: 13, color: '#64748b', marginTop: 24 }}>
-          Each started minute is rounded up. Sessions stop automatically when your wallet runs out.
-        </p>
+
+        <div className="pricing-note">
+          <span className="pricing-note-icon"><LineIcon name="spark" size={17} /></span>
+          New accounts receive ₹{signupBonus} in starter credit. Each started minute is rounded up, and sessions stop automatically if your wallet runs out.
+        </div>
       </div>
     </section>
   );
 }
 
-const pricingGrid: Record<string, React.CSSProperties> = {
-  grid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-    gap: 24,
-    maxWidth: 900,
-    margin: '0 auto',
-  },
-  card: {
-    background: 'rgba(255, 255, 255, 0.025)',
-    border: '1px solid rgba(255, 255, 255, 0.08)',
-    borderRadius: 16,
-    padding: '40px 28px',
-    textAlign: 'center' as const,
-    position: 'relative',
-    display: 'flex',
-    flexDirection: 'column' as const,
-  },
-  cardPopular: {
-    borderColor: 'rgba(59, 130, 246, 0.3)',
-    background: 'rgba(59, 130, 246, 0.05)',
-    transform: 'scale(1.03)',
-  },
-  popularBadge: {
-    position: 'absolute',
-    top: -12,
-    left: '50%',
-    transform: 'translateX(-50%)',
-    background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
-    color: 'white',
-    padding: '4px 14px',
-    borderRadius: 100,
-    fontSize: 12,
-    fontWeight: 600,
-  },
-  name: { fontSize: 20, fontWeight: 700, color: '#f1f5f9', marginBottom: 6 },
-  sessions: { fontSize: 2.2 + 'rem', fontWeight: 800, color: '#f1f5f9', marginBottom: 6 },
-  desc: { fontSize: 14, color: '#94a3b8', marginBottom: 20 },
-  priceRow: { display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 10, flexWrap: 'wrap' as const },
-  mrpStrike: { fontSize: 18, color: '#64748b', textDecoration: 'line-through' },
-  price: { fontSize: '2.2rem', fontWeight: 800, color: '#22c55e' },
-  discount: { display: 'block', fontSize: 13, color: '#f59e0b', marginTop: 8, fontWeight: 600 },
-};
-
-/* ===== Invisible ===== */
-function InvisibleSection() {
+function PrivateSection() {
   return (
-    <section className="section">
-      <div className="container" style={{ textAlign: 'center' as const, maxWidth: 700, margin: '0 auto' }}>
-        <span style={{ fontSize: 56, display: 'block', marginBottom: 24 }}>🫥</span>
-        <h2 className="section-title" style={{ marginBottom: 20 }}>
-          Invisible. Undetectable. Unstoppable.
-        </h2>
-        <p style={{ fontSize: '1.1rem', color: '#94a3b8', lineHeight: 1.7 }}>
-          The app is designed from the ground up to be invisible during screen sharing and recording.
-          No taskbar icon. No dock presence. 100% transparent overlay. Content protection enabled.
-          Even when sharing your full screen on Zoom, Teams, or Google Meet — the interviewer sees nothing.
-        </p>
+    <section className="section private-section">
+      <div className="container private-layout">
+        <div className="private-copy">
+          <span className="section-label">Private by design</span>
+          <h2 className="section-title">Your workspace stays yours.</h2>
+          <p className="section-subtitle">
+            Cueviq is built as a discreet desktop overlay with content protection, no taskbar interruption, and a transparent interface that stays out of your shared screen.
+          </p>
+          <div className="private-points">
+            <span><i>✓</i> Content-protected window</span>
+            <span><i>✓</i> No dock or taskbar clutter</span>
+            <span><i>✓</i> Works with major meeting tools</span>
+          </div>
+        </div>
+
+        <div className="private-visual" role="img" aria-label="Private workspace illustration">
+          <div className="share-window">
+            <div className="share-window-bar">
+              <div className="window-dots" aria-hidden="true"><span /><span /><span /></div>
+              <span>Screen preview</span>
+              <span className="share-live"><i /> Sharing</span>
+            </div>
+            <div className="share-window-body">
+              <div className="share-avatar">YOU</div>
+              <div className="share-lines"><span /><span /><span /></div>
+              <div className="share-hidden-card">
+                <LineIcon name="shield" size={22} />
+                <div><strong>Visible only to you</strong><span>Protected from screen capture</span></div>
+              </div>
+            </div>
+          </div>
+          <div className="meeting-tools" aria-hidden="true">
+            <span>Zoom</span><span>Meet</span><span>Teams</span><span>Recordings</span>
+          </div>
+        </div>
       </div>
     </section>
   );
 }
 
-/* ===== Testimonials ===== */
-// function TestimonialsSection() {
-//   const testimonials = [
-//     { quote: 'Got my dream job at Google thanks to UpNod. The passive mode caught every question the interviewer asked.', name: 'Rahul S.', role: 'Software Engineer at Google', avatar: 'RS' },
-//     { quote: 'The Screen Analyzer mode solved a LeetCode hard in under 30 seconds. I would have never solved it on my own.', name: 'Priya M.', role: 'Senior Developer at Amazon', avatar: 'PM' },
-//     { quote: 'Used it for 5 interviews. Got 4 offers. The context-aware answers that match your resume are a game changer.', name: 'Alex K.', role: 'Full Stack at Microsoft', avatar: 'AK' },
-//   ];
-
-//   return (
-//     <section className="section" style={{ background: 'rgba(255,255,255,0.015)' }}>
-//       <div className="container" style={{ textAlign: 'center' as const }}>
-//         <span className="section-label">Testimonials</span>
-//         <h2 className="section-title" style={{ maxWidth: 600, margin: '0 auto 16px' }}>
-//           Loved by Job Seekers Worldwide
-//         </h2>
-//         <p className="section-subtitle" style={{ margin: '0 auto 48px' }}>
-//           Real stories from real users who landed their dream jobs.
-//         </p>
-
-//         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 24, maxWidth: 960, margin: '0 auto' }}>
-//           {testimonials.map((t, i) => (
-//             <div key={i} style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 14, padding: '32px 24px', textAlign: 'left' as const }}>
-//               <p style={{ fontSize: 14, color: '#cbd5e1', lineHeight: 1.7, fontStyle: 'italic', marginBottom: 20 }}>"{t.quote}"</p>
-//               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-//                 <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: 'white' }}>{t.avatar}</div>
-//                 <div>
-//                   <div style={{ fontSize: 14, fontWeight: 600, color: '#f1f5f9' }}>{t.name}</div>
-//                   <div style={{ fontSize: 12, color: '#64748b' }}>{t.role}</div>
-//                 </div>
-//               </div>
-//             </div>
-//           ))}
-//         </div>
-//       </div>
-//     </section>
-//   );
-// }
-
-/* ===== FAQ ===== */
 function FAQSection() {
   const faqs = [
-    { q: 'Is UpNod detectable during screen sharing?', a: 'No. The app uses content protection APIs, hides from the taskbar, and renders as a transparent overlay. It is invisible in Zoom, Teams, Google Meet, and all major screen-sharing and recording tools.' },
-    { q: 'How fast are the AI responses?', a: 'Average response time is under 2 seconds. The app uses streaming AI models that deliver answers token-by-token as they are generated.' },
-    { q: 'How accurate are the AI answers?', a: 'The AI delivers highly accurate, context-aware responses by analyzing your resume and the job description. Answers are tailored to match the role and your experience level.' },
-    { q: 'How does Passive Mode work?', a: 'Passive Mode captures system audio output, detects when the interviewer asks a question, transcribes it automatically, and generates an answer — all without you touching the app.' },
-    { q: 'Is there a free trial?', a: 'Yes. Every new account includes a Welcome Offer with discounted pricing on the Starter pack. You also get 3 free sessions when you sign up.' },
-    { q: 'Can I use it on both Windows and Mac?', a: 'Yes, UpNod supports Windows 10/11 and macOS 12+. Your account and purchased sessions work across both platforms.' },
+    {
+      question: 'Does Cueviq appear during screen sharing?',
+      answer: 'Cueviq uses desktop content-protection APIs and a discreet transparent overlay designed to stay out of Zoom, Teams, Google Meet, and common screen recordings.',
+    },
+    {
+      question: 'How quickly do answers appear?',
+      answer: 'Typical response time is under two seconds. Answers stream as they are generated, so you can start reading useful context immediately.',
+    },
+    {
+      question: 'Can answers use my own experience?',
+      answer: 'Yes. Add your resume and target job description to receive guidance that reflects your background, role, and experience level.',
+    },
+    {
+      question: 'What does Passive Mode do?',
+      answer: 'Passive Mode captures system audio, detects an interviewer question, transcribes it, and prepares an answer without requiring manual input.',
+    },
+    {
+      question: 'Can I try Cueviq before paying?',
+      answer: 'Yes. Every new account receives ₹50 in starter wallet credit, with no payment card required to begin.',
+    },
+    {
+      question: 'Can one account work on Windows and Mac?',
+      answer: 'Yes. Cueviq supports Windows 10/11 and macOS 12+. Your account and wallet credit work across both platforms.',
+    },
   ];
 
   return (
-    <section id="faq" className="section" style={{ background: 'rgba(255,255,255,0.015)' }}>
-      <div className="container" style={{ textAlign: 'center' as const }}>
-        <span className="section-label">FAQ</span>
-        <h2 className="section-title" style={{ maxWidth: 600, margin: '0 auto 16px' }}>
-          Frequently Asked Questions
-        </h2>
-        <div style={{ maxWidth: 700, margin: '48px auto 0', textAlign: 'left' as const }}>
-          {faqs.map((f, i) => (
-            <details key={i} style={faq.item}>
-              <summary style={faq.question}>{f.q}</summary>
-              <p style={faq.answer}>{f.a}</p>
+    <section id="faq" className="section faq-section">
+      <div className="container faq-layout">
+        <div className="faq-heading">
+          <span className="section-label">Questions, answered</span>
+          <h2 className="section-title">Everything you need to know.</h2>
+          <p className="section-subtitle">Still unsure? Email us at <a href="mailto:upnodsupport@gmail.com">upnodsupport@gmail.com</a>.</p>
+        </div>
+        <div className="faq-list">
+          {faqs.map((faq, index) => (
+            <details className="faq-item" key={faq.question} open={index === 0}>
+              <summary><span>{faq.question}</span><i aria-hidden="true" /></summary>
+              <p>{faq.answer}</p>
             </details>
           ))}
         </div>
@@ -919,33 +767,23 @@ function FAQSection() {
   );
 }
 
-const faq: Record<string, React.CSSProperties> = {
-  item: {
-    borderBottom: '1px solid rgba(255,255,255,0.06)',
-    padding: '16px 0',
-    cursor: 'pointer',
-  },
-  question: { fontSize: 16, fontWeight: 600, color: '#e2e8f0', padding: '8px 0', listStyle: 'none' },
-  answer: { fontSize: 14, color: '#94a3b8', padding: '8px 0 16px', lineHeight: 1.65 },
-};
-
-/* ===== CTA ===== */
 function CTASection() {
   const authed = isAuthSession();
+
   return (
-    <section className="section">
-      <div style={{ maxWidth: 700, margin: '0 auto', textAlign: 'center' as const, padding: '0 24px' }}>
-        <div style={{ background: 'linear-gradient(135deg, rgba(59,130,246,0.1), rgba(139,92,246,0.1))', border: '1px solid rgba(139,92,246,0.2)', borderRadius: 20, padding: '60px 40px' }}>
-          <h2 style={{ fontSize: '2rem', fontWeight: 800, color: '#f1f5f9', marginBottom: 16, letterSpacing: '-0.02em' }}>
-            Ready to Crack Your Next Interview?
-          </h2>
-          <p style={{ fontSize: '1.1rem', color: '#94a3b8', marginBottom: 32, maxWidth: 500, margin: '0 auto 32px' }}>
-            Join 10,000+ professionals who landed their dream jobs with UpNod.
-          </p>
-          <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' as const }}>
-            <Link to="/download" className="btn btn-green btn-lg">Download Now</Link>
-            <Link to={authed ? '/wallet' : '/register'} className="btn btn-outline btn-lg">
-              {authed ? 'Go to My Wallet' : 'Create Free Account'}
+    <section className="section final-cta-section">
+      <div className="container">
+        <div className="final-cta-card">
+          <div className="final-cta-glow" aria-hidden="true" />
+          <div className="final-cta-copy">
+            <span className="section-label">Your next interview</span>
+            <h2>Less second-guessing.<br />More confident answers.</h2>
+            <p>Download Cueviq, add your context, and walk into the conversation ready.</p>
+          </div>
+          <div className="final-cta-actions">
+            <Link to="/download" className="btn btn-dark btn-lg">Download Cueviq <span aria-hidden="true">→</span></Link>
+            <Link to={authed ? '/wallet' : '/register'} className="cta-text-link">
+              {authed ? 'Open my wallet' : 'Create a free account'}
             </Link>
           </div>
         </div>

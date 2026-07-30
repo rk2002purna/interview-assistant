@@ -132,14 +132,16 @@ export default function CheckoutPage() {
     }
 
     const displayName = getDisplayName();
+    const checkoutThemeColor =
+      document.documentElement.dataset.theme === 'light' ? '#47751f' : '#22c55e';
     const options: Record<string, unknown> = {
       key: order.key_id,
       order_id: order.order_id,
       amount: order.amount,
       currency: order.currency,
-      name: 'UpNod',
+      name: 'Cueviq',
       description: `Wallet top-up ₹${amount.toLocaleString('en-IN')}`,
-      theme: { color: '#22c55e' },
+      theme: { color: checkoutThemeColor },
       prefill: displayName ? { name: displayName } : {},
       handler: async (resp: {
         razorpay_order_id?: string;
