@@ -212,14 +212,14 @@
         <div class="account-email" id="account-email">Loading...</div>
         <div class="account-role" id="account-role"></div>
       </div>
-      <div id="entitlement-container">
-        <span class="entitlement-badge sessions" id="entitlement-badge">
-          <span id="entitlement-text">—</span>
+      <div id="wallet-container">
+        <span class="entitlement-badge sessions" id="wallet-badge" title="Your wallet balance">
+          <span id="wallet-text">—</span>
         </span>
       </div>
     </div>
     <div class="account-actions">
-      <button class="success" id="buy-sessions-btn" onclick="buyMoreSessions()">🛒 Buy More Sessions</button>
+      <button class="success" id="add-money-btn" onclick="addMoneyToWallet()">💰 Add Money to Wallet</button>
       <button class="secondary" onclick="downloadChatHistory()">💾 Download Chat History</button>
       <button class="secondary" id="admin-link" onclick="openAdminDashboard()">🔧 Open Admin Dashboard</button>
       <button class="danger" id="sign-out-btn" onclick="signOut()">🚪 Sign Out</button>
@@ -413,33 +413,34 @@
     }
   }
 
-  async function loadEntitlement() {
+  async function loadWallet() {
+    // Per-minute billing model: show the wallet balance (and an estimate of
+    // remaining minutes), not a "sessions remaining" count.
     try {
-      if (!api || !api.entitlement) return;
-      const ent = await api.entitlement.get();
-      const badge = document.getElementById('entitlement-badge');
-      const text = document.getElementById('entitlement-text');
-
-      if (ent && ent.lifetime_flag) {
-        badge.className = 'entitlement-badge lifetime';
-        text.textContent = '♾️ Lifetime Access';
-      } else if (ent) {
-        badge.className = 'entitlement-badge sessions';
-        const count = ent.session_count || 0;
-        text.textContent = count + ' session' + (count !== 1 ? 's' : '') + ' remaining';
+      if (!api || !api.wallet) return;
+      const w = await api.wallet.get();
+      const text = document.getElementById('wallet-text');
+      if (!text) return;
+      if (w && typeof w.balance_paise === 'number') {
+        const balanceStr = '₹' + (w.balance_paise / 100).toFixed(2);
+        text.textContent = (typeof w.estimated_minutes_remaining === 'number')
+          ? (balanceStr + ' • ~' + w.estimated_minutes_remaining + ' min')
+          : balanceStr;
+      } else {
+        text.textContent = '—';
       }
     } catch (err) {
-      console.error('Failed to load entitlement:', err);
+      console.error('Failed to load wallet balance:', err);
     }
   }
 
-  async function buyMoreSessions() {
-    // Open the web app pricing page in the browser.
-    // The user can select a pack and complete payment via UPI.
+  async function addMoneyToWallet() {
+    // Open the web app wallet page in the browser to top up the balance
+    // (per-minute billing — no session packs).
     try {
-      shell.openExternal('https://upnod.referconnect.in/pricing');
+      shell.openExternal('https://upnod.referconnect.in/wallet');
     } catch (err) {
-      console.error('Failed to open pricing page:', err);
+      console.error('Failed to open wallet page:', err);
     }
   }
 
@@ -496,7 +497,7 @@
   async function load() {
     // Load account info first (doesn't depend on config) and in parallel with config
     const accountPromise = loadAccountInfo();
-    const entitlementPromise = loadEntitlement();
+    const walletPromise = loadWallet();
 
     try {
       const config = api && api.config ? await api.config.load() : {};
@@ -513,7 +514,7 @@
 
     // Wait for account/entitlement to finish (they run in parallel)
     try { await accountPromise; } catch {}
-    try { await entitlementPromise; } catch {}
+    try { await walletPromise; } catch {}
   }
 
   function save() {
