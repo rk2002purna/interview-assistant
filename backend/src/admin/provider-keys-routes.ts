@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { JwtError, verifyAccess } from '../auth/jwt.js';
 import { encrypt } from '../crypto/aes-gcm.js';
 import { writeAudit } from '../log/audit.js';
+import { isCurrentAdmin } from './verify-admin-role.js';
 
 /**
  * Admin Provider_Key HTTP routes.
@@ -139,7 +140,7 @@ export function buildAdminProviderKeysRouter(
   // GET /admin/provider-keys
   // -------------------------------------------------------------------------
   router.get('/admin/provider-keys', async (c) => {
-    const auth = await authenticateAdmin(c.req.header('Authorization'));
+    const auth = await authenticateAdmin(c.req.header('Authorization'), deps.pool);
     if ('errorBody' in auth) {
       return c.json(auth.errorBody, auth.status);
     }
@@ -161,7 +162,7 @@ export function buildAdminProviderKeysRouter(
   // POST /admin/provider-keys
   // -------------------------------------------------------------------------
   router.post('/admin/provider-keys', async (c) => {
-    const auth = await authenticateAdmin(c.req.header('Authorization'));
+    const auth = await authenticateAdmin(c.req.header('Authorization'), deps.pool);
     if ('errorBody' in auth) {
       return c.json(auth.errorBody, auth.status);
     }
@@ -244,7 +245,7 @@ export function buildAdminProviderKeysRouter(
   // PATCH /admin/provider-keys/:provider   (rotate)
   // -------------------------------------------------------------------------
   router.patch('/admin/provider-keys/:provider', async (c) => {
-    const auth = await authenticateAdmin(c.req.header('Authorization'));
+    const auth = await authenticateAdmin(c.req.header('Authorization'), deps.pool);
     if ('errorBody' in auth) {
       return c.json(auth.errorBody, auth.status);
     }
@@ -351,7 +352,7 @@ export function buildAdminProviderKeysRouter(
   // DELETE /admin/provider-keys/:provider
   // -------------------------------------------------------------------------
   router.delete('/admin/provider-keys/:provider', async (c) => {
-    const auth = await authenticateAdmin(c.req.header('Authorization'));
+    const auth = await authenticateAdmin(c.req.header('Authorization'), deps.pool);
     if ('errorBody' in auth) {
       return c.json(auth.errorBody, auth.status);
     }
@@ -563,6 +564,7 @@ interface AdminAuthFailure {
  */
 async function authenticateAdmin(
   authorization: string | undefined,
+  pool: Pool,
 ): Promise<AdminAuthSuccess | AdminAuthFailure> {
   const forbidden: AdminAuthFailure = {
     status: 403,
@@ -580,6 +582,9 @@ async function authenticateAdmin(
   try {
     const claims = await verifyAccess(match[1]!);
     if (claims.role !== 'admin') return forbidden;
+    // Re-check the live role: JWT claims are stale for the token's lifetime
+    // after a demotion, so confirm the row still says admin (finding F3).
+    if (!(await isCurrentAdmin(pool, claims.sub))) return forbidden;
     return { sub: claims.sub, role: 'admin', client_id: claims.client_id };
   } catch (err) {
     if (err instanceof JwtError) return forbidden;

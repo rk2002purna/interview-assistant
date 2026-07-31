@@ -4,6 +4,9 @@
  *   GET  /me/wallet — the authenticated user's current wallet balance plus the
  *                     per-minute rate, so clients can show balance and estimate
  *                     remaining interview minutes.
+ *   GET  /me/profile — the authenticated user's identity (email, role,
+ *                     display_name), read from the users table rather than
+ *                     decoded from the access token (finding F12).
  *   POST /me/welcome-credit-notice/claim — reserves the new-user credit banner
  *                     for one client with replay protection.
  *   POST /me/welcome-credit-notice/acknowledge — marks a rendered reservation
@@ -76,6 +79,40 @@ export function buildWalletRouter(deps: WalletRouterDeps): Hono {
       balance_paise: balancePaise,
       rate_per_minute_paise: RATE_PER_MINUTE_PAISE,
       estimated_minutes_remaining: estimatedMinutes,
+    });
+  });
+
+  // GET /me/profile — the authenticated user's identity, read from the users
+  // table rather than decoded from the token. Clients (notably the desktop app)
+  // must not trust email/role/display_name decoded locally from an access token,
+  // because the token's signature is only checked server-side; a token pushed in
+  // over the interview-assistant:// callback could carry attacker-chosen claims
+  // (finding F12). The JWT is signature-verified in `authenticate`, then the
+  // canonical fields are served from the row keyed by its subject.
+  router.get('/me/profile', async (c) => {
+    const auth = await authenticate(c);
+    if (!(auth && 'userId' in auth)) {
+      return auth;
+    }
+
+    const result = await deps.pool.query<{
+      email: string;
+      role: string;
+      display_name: string | null;
+    }>(`SELECT email, role, display_name FROM users WHERE id = $1`, [auth.userId]);
+
+    const row = result.rows[0];
+    if (!row) {
+      return c.json(
+        { error: { code: 'not_found', message: 'user not found' } },
+        404,
+      );
+    }
+
+    return c.json({
+      email: row.email,
+      role: row.role,
+      display_name: row.display_name,
     });
   });
 
