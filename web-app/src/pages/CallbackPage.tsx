@@ -2,9 +2,21 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { getStoredTokens } from '../api/client';
 
+/**
+ * Restrict the redirect carried into the desktop callback URL to same-origin,
+ * absolute in-app paths (single leading "/", no scheme, not protocol-relative).
+ * Prevents an attacker-supplied redirect from riding the interview-assistant://
+ * callback off-origin (findings F7/F8).
+ */
+function sanitizeRedirect(raw: string | null, fallback: string): string {
+  if (!raw) return fallback;
+  if (!/^\/(?![/\\])[^\s]*$/.test(raw)) return fallback;
+  return raw;
+}
+
 export default function CallbackPage() {
   const [searchParams] = useSearchParams();
-  const redirectTo = searchParams.get('redirect') || '/admin';
+  const redirectTo = sanitizeRedirect(searchParams.get('redirect'), '/admin');
   const [tokens] = useState(() => getStoredTokens());
   const [autoTriggered, setAutoTriggered] = useState(false);
 
