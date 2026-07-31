@@ -322,15 +322,29 @@ export function buildAuthLoginRouter(deps: LoginRoutesDeps): Hono {
       // Verify password.
       const passwordValid = await verifyPassword(user.password_hash, password);
       if (!passwordValid) {
-        // Increment failed login count.
-        const newCount = user.failed_login_count + 1;
+        // Increment atomically so concurrent wrong-password bursts each count
+        // as their own attempt. Previously the handler wrote a stale absolute
+        // value (failed_login_count = <cached> + 1) which collapsed many
+        // parallel failures into one under READ COMMITTED and let an attacker
+        // slip well past LOCKOUT_THRESHOLD before the row was locked (finding
+        // F5). The returned value drives the lockout decision on this request.
+        const incResult = await client.query<{ failed_login_count: number }>(
+          `UPDATE users SET failed_login_count = failed_login_count + 1
+             WHERE id = $1
+             RETURNING failed_login_count`,
+          [user.id],
+        );
+        const newCount = Number(incResult.rows[0]?.failed_login_count ?? 0);
         if (newCount >= LOCKOUT_THRESHOLD) {
-          // Lock the account for LOCKOUT_DURATION_MS.
+          // Lock the account for LOCKOUT_DURATION_MS. A second concurrent
+          // request that also crosses the threshold will overwrite locked_until
+          // with an equivalent timestamp — same lockout window, no harm — and
+          // both callers get the same 429 response below.
           const lockedUntil = new Date(now.getTime() + LOCKOUT_DURATION_MS);
           await client.query(
-            `UPDATE users SET failed_login_count = $1, locked_until = $2
-              WHERE id = $3`,
-            [newCount, lockedUntil.toISOString(), user.id],
+            `UPDATE users SET locked_until = $1
+               WHERE id = $2 AND (locked_until IS NULL OR locked_until < $1)`,
+            [lockedUntil.toISOString(), user.id],
           );
           const retryAfterSeconds = Math.ceil(LOCKOUT_DURATION_MS / 1000);
           return errorResponse(
@@ -339,11 +353,6 @@ export function buildAuthLoginRouter(deps: LoginRoutesDeps): Hono {
             'account is temporarily locked due to too many failed login attempts',
             { retry_after: retryAfterSeconds },
             { 'Retry-After': String(retryAfterSeconds) },
-          );
-        } else {
-          await client.query(
-            `UPDATE users SET failed_login_count = $1 WHERE id = $2`,
-            [newCount, user.id],
           );
         }
         return c.json(
