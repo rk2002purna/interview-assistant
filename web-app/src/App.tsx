@@ -20,6 +20,7 @@ import AdminAuditLog from './pages/admin/AuditLogPage';
 import AdminRateLimits from './pages/admin/RateLimitsPage';
 import AdminModelRouting from './pages/admin/ModelRoutingPage';
 import AdminUsageAnalytics from './pages/admin/UsageAnalyticsPage';
+import WelcomeCreditBanner from './components/WelcomeCreditBanner';
 import { isAuthSession, isAdminSession } from './api/client';
 
 function ProtectedRoute({ children, requireAdmin = false }: { children: React.ReactNode; requireAdmin?: boolean }) {
@@ -36,7 +37,9 @@ function CheckoutRedirect() {
 
 export default function App() {
   return (
-    <Routes>
+    <>
+      <WelcomeCreditBanner />
+      <Routes>
       {/* Public */}
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
@@ -66,7 +69,8 @@ export default function App() {
         <Route path="usage-analytics" element={<AdminUsageAnalytics />} />
       </Route>
 
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </>
   );
 }
