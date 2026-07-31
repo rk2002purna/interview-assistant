@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { JwtError, verifyAccess } from '../auth/jwt.js';
 import { appendWalletEntry, getWalletBalancePaise, WalletError } from '../wallet/ledger.js';
 import { writeAudit } from '../log/audit.js';
+import { isCurrentAdmin } from './verify-admin-role.js';
 
 /**
  * Admin user management HTTP routes.
@@ -99,7 +100,7 @@ export function buildAdminUsersRouter(deps: AdminUsersRouterDeps): Hono {
   // Validates: Requirement 11.1.
   // -------------------------------------------------------------------------
   router.get('/admin/users', async (c) => {
-    const auth = await authenticateAdmin(c.req.header('Authorization'));
+    const auth = await authenticateAdmin(c.req.header('Authorization'), deps.pool);
     if ('errorBody' in auth) {
       return c.json(auth.errorBody, auth.status);
     }
@@ -359,7 +360,7 @@ export function buildAdminUsersRouter(deps: AdminUsersRouterDeps): Hono {
   // Validates: Requirement 11.2.
   // -------------------------------------------------------------------------
   router.get('/admin/users/:id', async (c) => {
-    const auth = await authenticateAdmin(c.req.header('Authorization'));
+    const auth = await authenticateAdmin(c.req.header('Authorization'), deps.pool);
     if ('errorBody' in auth) {
       return c.json(auth.errorBody, auth.status);
     }
@@ -580,7 +581,7 @@ export function buildAdminUsersRouter(deps: AdminUsersRouterDeps): Hono {
 
   router.patch('/admin/users/:id/role', async (c) => {
     // Inline admin auth gate (same pattern as other admin routes).
-    const auth = await authenticateAdmin(c.req.header('Authorization'));
+    const auth = await authenticateAdmin(c.req.header('Authorization'), deps.pool);
     if ('errorBody' in auth) {
       return c.json(auth.errorBody, auth.status);
     }
@@ -707,7 +708,7 @@ export function buildAdminUsersRouter(deps: AdminUsersRouterDeps): Hono {
   // -------------------------------------------------------------------------
   router.post('/admin/users/:id/wallet-adjust', async (c) => {
     // Inline admin auth gate (same pattern as PATCH /admin/users/:id/role).
-    const auth = await authenticateAdmin(c.req.header('Authorization'));
+    const auth = await authenticateAdmin(c.req.header('Authorization'), deps.pool);
     if ('errorBody' in auth) {
       return c.json(auth.errorBody, auth.status);
     }
@@ -863,6 +864,7 @@ interface AuthFailure {
  */
 async function authenticateAdmin(
   authorization: string | undefined,
+  pool: Pool,
 ): Promise<AdminAuthSuccess | AuthFailure> {
   if (!authorization) return ROLE_CHANGE_FORBIDDEN;
   const match = /^Bearer\s+(\S+)$/i.exec(authorization);
@@ -870,6 +872,9 @@ async function authenticateAdmin(
   try {
     const claims = await verifyAccess(match[1]!);
     if (claims.role !== 'admin') return ROLE_CHANGE_FORBIDDEN;
+    // Re-check the live role: the JWT claim is stale for the token's lifetime
+    // after a demotion, so confirm the row still says admin (finding F3).
+    if (!(await isCurrentAdmin(pool, claims.sub))) return ROLE_CHANGE_FORBIDDEN;
     return { sub: claims.sub, role: 'admin', client_id: claims.client_id };
   } catch (err) {
     if (err instanceof JwtError) return ROLE_CHANGE_FORBIDDEN;
