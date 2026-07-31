@@ -33,6 +33,17 @@ import { verify as verifyPassword } from './password.js';
 import { signAccessToken, ACCESS_TOKEN_TTL_SECONDS } from './jwt.js';
 import { writeAudit } from '../log/audit.js';
 
+/**
+ * A fixed, valid Argon2id encoded hash used only to equalize response timing
+ * when the account does not exist. Verifying the supplied password against this
+ * hash always fails, but it burns the same ~Argon2id cost as a real password
+ * check, so an attacker cannot distinguish "no such account" from "wrong
+ * password" by latency (finding F11). It is generated with the same parameters
+ * as {@link ARGON2_PARAMS} (m=64 MiB, t=3, p=1) and is not a real credential.
+ */
+const TIMING_EQUALIZER_HASH =
+  '$argon2id$v=19$m=65536,t=3,p=1$t/LoHrLW9YcnxPEF3k77Mw$njBUcW66adgms0cTn6e5kJC+UnFd4NtjJ7mQZhQ3xBk';
+
 /** Lockout threshold: number of failed attempts before lockout. */
 export const LOCKOUT_THRESHOLD = 5;
 /** Lockout window in milliseconds (15 minutes). */
@@ -264,8 +275,11 @@ export function buildAuthLoginRouter(deps: LoginRoutesDeps): Hono {
 
       const user = userResult.rows[0];
       if (!user) {
-        // User not found — return generic invalid_credentials to avoid
-        // disclosing whether the email exists.
+        // User not found — verify against a fixed dummy hash so this path costs
+        // the same Argon2id work as a real password check, then return the
+        // generic error. Without this, the early return is measurably faster
+        // for nonexistent emails and discloses account existence (finding F11).
+        await verifyPassword(TIMING_EQUALIZER_HASH, password);
         return c.json(
           err('invalid_credentials', 'email or password is incorrect'),
           401,
