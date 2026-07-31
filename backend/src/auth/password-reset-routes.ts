@@ -281,6 +281,24 @@ export function buildPasswordResetRouter(deps: PasswordResetRoutesDeps): Hono {
         [newPasswordHash, row.user_id],
       );
 
+      // Revoke every still-active refresh token for this user, in the same
+      // transaction as the password change. Without this, a refresh token
+      // stolen before the reset stays valid for its full 30-day TTL and can
+      // keep minting access tokens after the victim believes the reset
+      // secured the account (finding F4). Also reset the failed-login lockout
+      // so the legitimate owner is not locked out by the attacker's attempts.
+      await client.query(
+        `UPDATE refresh_tokens
+            SET revoked_at = $1
+          WHERE user_id = $2 AND revoked_at IS NULL`,
+        [now.toISOString(), row.user_id],
+      );
+      await client.query(
+        `UPDATE users SET failed_login_count = 0, locked_until = NULL
+          WHERE id = $1`,
+        [row.user_id],
+      );
+
       // Mark the token as used.
       await client.query(
         `UPDATE password_resets SET used_at = $1 WHERE id = $2`,
