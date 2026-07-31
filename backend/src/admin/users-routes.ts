@@ -628,6 +628,16 @@ export function buildAdminUsersRouter(deps: AdminUsersRouterDeps): Hono {
     try {
       await client.query('BEGIN');
 
+      // Serialize the at-least-one-admin invariant across every role-change
+      // transaction. Without this, two concurrent demotions of *different*
+      // admins each lock only their own target row, each observes the other
+      // admin still present under READ COMMITTED, both pass the count > 0
+      // guard below, and both commit — leaving zero admins (finding F6). A
+      // transaction-scoped advisory lock on a constant key forces all role
+      // changes into a strict order, so the second demotion sees the first's
+      // committed effect and correctly refuses.
+      await client.query(`SELECT pg_advisory_xact_lock(6103501)`);
+
       // Lock the target user row to prevent concurrent role changes.
       const targetResult = await client.query<{ id: string; role: string }>(
         `SELECT id, role FROM users WHERE id = $1 FOR UPDATE`,
