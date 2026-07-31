@@ -5,10 +5,27 @@ import Header from '../components/Header';
 import Footer from '../components/Footer';
 import GoogleSignInButton from '../components/GoogleSignInButton';
 
+/**
+ * Restrict post-login navigation to same-origin, absolute in-app paths.
+ * Accepts only values that begin with a single "/" (not "//" or "/\", which
+ * are protocol-relative and navigate off-origin) and carry no scheme. Anything
+ * else — a "javascript:" URI, an absolute "https://evil" URL, a
+ * protocol-relative "//evil" — collapses to the safe fallback. Prevents the
+ * open-redirect and redirect-to-XSS classes (findings F7/F8).
+ */
+function sanitizeRedirect(raw: string | null, fallback: string): string {
+  if (!raw) return fallback;
+  if (!/^\/(?![/\\])[^\s]*$/.test(raw)) return fallback;
+  return raw;
+}
+
 export default function LoginPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const redirectTo = searchParams.get('redirect') || (isAuthSession() ? '/admin' : '/');
+  const redirectTo = sanitizeRedirect(
+    searchParams.get('redirect'),
+    isAuthSession() ? '/admin' : '/',
+  );
   const fromDesktop = searchParams.get('desktop') === '1';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

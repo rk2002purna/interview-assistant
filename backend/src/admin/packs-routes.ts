@@ -3,6 +3,7 @@ import type { Pool, PoolClient } from 'pg';
 import { z } from 'zod';
 import { JwtError, verifyAccess } from '../auth/jwt.js';
 import { writeAudit } from '../log/audit.js';
+import { isCurrentAdmin } from './verify-admin-role.js';
 
 /**
  * Admin Pack_Catalog HTTP routes.
@@ -132,7 +133,7 @@ export function buildAdminPacksRouter(deps: AdminPacksRouterDeps): Hono {
   const router = new Hono();
 
   router.get('/admin/packs', async (c) => {
-    const auth = await authenticateAdmin(c.req.header('Authorization'));
+    const auth = await authenticateAdmin(c.req.header('Authorization'), deps.pool);
     if ('errorBody' in auth) {
       return c.json(auth.errorBody, auth.status);
     }
@@ -159,7 +160,7 @@ export function buildAdminPacksRouter(deps: AdminPacksRouterDeps): Hono {
   });
 
   router.patch('/admin/packs/:slug', async (c) => {
-    const auth = await authenticateAdmin(c.req.header('Authorization'));
+    const auth = await authenticateAdmin(c.req.header('Authorization'), deps.pool);
     if ('errorBody' in auth) {
       return c.json(auth.errorBody, auth.status);
     }
@@ -388,6 +389,7 @@ interface AuthFailure {
  */
 async function authenticateAdmin(
   authorization: string | undefined,
+  pool: Pool,
 ): Promise<AdminAuthSuccess | AuthFailure> {
   const forbidden: AuthFailure = {
     status: 403,
@@ -402,6 +404,9 @@ async function authenticateAdmin(
   try {
     const claims = await verifyAccess(match[1]!);
     if (claims.role !== 'admin') return forbidden;
+    // Re-check the live role: JWT claims are stale for the token's lifetime
+    // after a demotion, so confirm the row still says admin (finding F3).
+    if (!(await isCurrentAdmin(pool, claims.sub))) return forbidden;
     return { sub: claims.sub, role: 'admin', client_id: claims.client_id };
   } catch (err) {
     if (err instanceof JwtError) return forbidden;

@@ -14,6 +14,7 @@ cd "$ROOT_DIR"
 SERVER_USER="${SERVER_USER:-ubuntu}"
 SERVER_HOST="${SERVER_HOST:?Set SERVER_HOST to the EC2 Elastic IP or hostname}"
 SSH_KEY="${SSH_KEY:-}"
+SSH_KNOWN_HOSTS="${SSH_KNOWN_HOSTS:-}"
 SSH_PORT="${SSH_PORT:-22}"
 API_HOST="${API_HOST:-api-interview.referconnect.in}"
 NEON_BACKUP_CONFIRMED="${NEON_BACKUP_CONFIRMED:-no}"
@@ -46,9 +47,45 @@ SSH_ARGS=(
   -p "$SSH_PORT"
   -o BatchMode=yes
   -o ConnectTimeout=10
-  -o StrictHostKeyChecking=accept-new
 )
-RSYNC_SSH="ssh -p $SSH_PORT -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new"
+RSYNC_SSH="ssh -p $SSH_PORT -o BatchMode=yes -o ConnectTimeout=10"
+
+# Host-key verification (finding F13).
+# When SSH_KNOWN_HOSTS points at a file containing the target's host key,
+# require an exact match and fail closed on mismatch. Provision that file
+# out of band once per host — e.g. `ssh-keyscan -p 22 $SERVER_HOST > known_hosts`
+# reviewed against the fingerprint AWS shows for the instance — then export
+# SSH_KNOWN_HOSTS=/path/to/known_hosts before running this script. Only fall
+# back to trust-on-first-use (`accept-new`) when SSH_KNOWN_HOSTS is empty and
+# ALLOW_TOFU_HOST_KEY=yes is set explicitly, so a first bootstrap can still
+# work but no later deploy silently accepts a rogue key.
+if [[ -n "$SSH_KNOWN_HOSTS" ]]; then
+  [[ -f "$SSH_KNOWN_HOSTS" ]] || {
+    echo "SSH_KNOWN_HOSTS does not exist: $SSH_KNOWN_HOSTS" >&2
+    exit 1
+  }
+  [[ "$SSH_KNOWN_HOSTS" != *[[:space:]]* ]] || {
+    echo "SSH_KNOWN_HOSTS paths containing whitespace are not supported." >&2
+    exit 1
+  }
+  SSH_ARGS+=(
+    -o StrictHostKeyChecking=yes
+    -o UserKnownHostsFile="$SSH_KNOWN_HOSTS"
+    -o GlobalKnownHostsFile=/dev/null
+  )
+  RSYNC_SSH+=" -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$SSH_KNOWN_HOSTS -o GlobalKnownHostsFile=/dev/null"
+elif [[ "${ALLOW_TOFU_HOST_KEY:-no}" == "yes" ]]; then
+  echo "WARNING: SSH_KNOWN_HOSTS is unset and ALLOW_TOFU_HOST_KEY=yes — accepting" >&2
+  echo "         the remote host key on first sight. A MITM at this moment would" >&2
+  echo "         be silently trusted. Set SSH_KNOWN_HOSTS on every subsequent deploy." >&2
+  SSH_ARGS+=(-o StrictHostKeyChecking=accept-new)
+  RSYNC_SSH+=" -o StrictHostKeyChecking=accept-new"
+else
+  echo "Refusing to deploy without a pinned host key. Set SSH_KNOWN_HOSTS to a file" >&2
+  echo "containing the target's public host key (from an out-of-band verification of" >&2
+  echo "the fingerprint), or set ALLOW_TOFU_HOST_KEY=yes for a first-bootstrap deploy." >&2
+  exit 1
+fi
 if [[ -n "$SSH_KEY" ]]; then
   [[ -f "$SSH_KEY" ]] || {
     echo "SSH_KEY does not exist: $SSH_KEY" >&2

@@ -21,33 +21,18 @@ function handleProtocolUrl(urlStr) {
         return;
       }
 
-      // Estimate expires_in from the JWT exp claim
-      let expiresIn = 3600;
-      try {
-        const parts = accessToken.split('.');
-        if (parts.length === 3) {
-          const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-          const payload = JSON.parse(Buffer.from(base64, 'base64').toString());
-          if (payload.exp) {
-            expiresIn = Math.max(60, payload.exp - Math.floor(Date.now() / 1000));
-          }
-        }
-      } catch { /* use default */ }
+      // The tokens arrive over an OS-wide custom-scheme URL that any local
+      // process or web page can trigger, and their signature is only checked
+      // server-side. So we must NOT decode the JWT here and trust its claims:
+      // an attacker could craft a token with arbitrary exp/email/role. We do
+      // not derive expiresIn from the unverified `exp` (use the fixed default;
+      // the backend rejects an actually-expired token on the next API call),
+      // and we do not persist email/role from the payload. Identity is fetched
+      // from the signature-verified /me/profile endpoint by auth:getCurrentUser
+      // (finding F12).
+      const expiresIn = 3600;
 
       authController.handleLoginSuccess({ accessToken, refreshToken, expiresIn });
-
-      // Also persist the email if available from the JWT
-      try {
-        const parts = accessToken.split('.');
-        if (parts.length === 3) {
-          const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-          const payload = JSON.parse(Buffer.from(base64, 'base64').toString());
-          if (payload.email || payload.sub) {
-            const secureStore = require('./auth/secure-store');
-            secureStore.setItem('user_email', payload.email || payload.sub);
-          }
-        }
-      } catch { /* best effort */ }
 
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('auth-callback-success');
@@ -911,20 +896,20 @@ ipcMain.handle('auth:getCurrentUser', async () => {
   if (!authController.isAuthenticated()) {
     return null;
   }
-  // Decode the access token to get user info
+  // Fetch identity from the backend rather than decoding the local access
+  // token. The token's signature is only verified server-side, so a token
+  // pushed in over the interview-assistant:// callback could carry
+  // attacker-chosen email/role claims; trusting them here previously let a
+  // crafted 'role':'admin' claim reveal the admin dashboard link (finding
+  // F12). /me/profile returns the canonical fields from the DB row after the
+  // backend verifies the token signature.
   try {
-    const token = authController.getAccessToken();
-    if (!token) return null;
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-    // Normalize base64url to base64 for compatibility with older Node.js
-    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    const json = Buffer.from(base64, 'base64').toString('utf-8');
-    const payload = JSON.parse(json);
+    const result = await backendRequest({ method: 'GET', path: '/me/profile' });
+    if (!result.ok || !result.data) return null;
     return {
-      email: payload.email || payload.sub || 'unknown',
-      role: payload.role || 'user',
-      displayName: payload.display_name || null
+      email: result.data.email || 'unknown',
+      role: result.data.role || 'user',
+      displayName: result.data.display_name ?? null,
     };
   } catch {
     return null;

@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { Pool } from 'pg';
 import { JwtError, verifyAccess } from '../auth/jwt.js';
+import { isCurrentAdmin } from './verify-admin-role.js';
 
 /**
  * Admin audit log HTTP routes.
@@ -49,7 +50,7 @@ export function buildAdminAuditLogRouter(deps: AdminAuditLogRouterDeps): Hono {
 
   router.get('/admin/audit-log', async (c) => {
     // Inline admin auth gate.
-    const auth = await authenticateAdmin(c.req.header('Authorization'));
+    const auth = await authenticateAdmin(c.req.header('Authorization'), deps.pool);
     if ('errorBody' in auth) {
       return c.json(auth.errorBody, auth.status);
     }
@@ -294,6 +295,7 @@ interface AuthFailure {
  */
 async function authenticateAdmin(
   authorization: string | undefined,
+  pool: Pool,
 ): Promise<AdminAuthSuccess | AuthFailure> {
   if (!authorization) return AUDIT_LOG_FORBIDDEN;
   const match = /^Bearer\s+(\S+)$/i.exec(authorization);
@@ -301,6 +303,9 @@ async function authenticateAdmin(
   try {
     const claims = await verifyAccess(match[1]!);
     if (claims.role !== 'admin') return AUDIT_LOG_FORBIDDEN;
+    // Re-check the live role: JWT claims are stale for the token's lifetime
+    // after a demotion, so confirm the row still says admin (finding F3).
+    if (!(await isCurrentAdmin(pool, claims.sub))) return AUDIT_LOG_FORBIDDEN;
     return { sub: claims.sub, role: 'admin', client_id: claims.client_id };
   } catch (err) {
     if (err instanceof JwtError) return AUDIT_LOG_FORBIDDEN;

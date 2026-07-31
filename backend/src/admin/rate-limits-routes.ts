@@ -3,6 +3,7 @@ import type { Pool } from 'pg';
 import { z } from 'zod';
 import { JwtError, verifyAccess } from '../auth/jwt.js';
 import { writeAudit } from '../log/audit.js';
+import { isCurrentAdmin } from './verify-admin-role.js';
 
 /**
  * Admin rate-limit override HTTP routes.
@@ -75,7 +76,7 @@ export function buildAdminRateLimitsRouter(deps: AdminRateLimitsRouterDeps): Hon
 
   router.patch('/admin/rate-limits/:user_id', async (c) => {
     // Inline admin auth gate.
-    const auth = await authenticateAdmin(c.req.header('Authorization'));
+    const auth = await authenticateAdmin(c.req.header('Authorization'), deps.pool);
     if ('errorBody' in auth) {
       return c.json(auth.errorBody, auth.status);
     }
@@ -244,6 +245,7 @@ interface AuthFailure {
  */
 async function authenticateAdmin(
   authorization: string | undefined,
+  pool: Pool,
 ): Promise<AdminAuthSuccess | AuthFailure> {
   if (!authorization) return RATE_LIMITS_FORBIDDEN;
   const match = /^Bearer\s+(\S+)$/i.exec(authorization);
@@ -251,6 +253,9 @@ async function authenticateAdmin(
   try {
     const claims = await verifyAccess(match[1]!);
     if (claims.role !== 'admin') return RATE_LIMITS_FORBIDDEN;
+    // Re-check the live role: JWT claims are stale for the token's lifetime
+    // after a demotion, so confirm the row still says admin (finding F3).
+    if (!(await isCurrentAdmin(pool, claims.sub))) return RATE_LIMITS_FORBIDDEN;
     return { sub: claims.sub, role: 'admin', client_id: claims.client_id };
   } catch (err) {
     if (err instanceof JwtError) return RATE_LIMITS_FORBIDDEN;
