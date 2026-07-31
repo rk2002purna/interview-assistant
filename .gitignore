@@ -8,3 +8,6 @@ out/
 
 # Never commit cloud SSH private keys.
 *.pem
+
+# Per-developer Claude Code settings; may contain API keys in Bash allow-rules.
+.claude/settings.local.json

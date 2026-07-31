@@ -2475,8 +2475,8 @@ function clearUsageData() {
 // ===== UTIL =====
 function handleKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();askManual();}}
 function askManual(){var input=document.getElementById('manual-input');var q=input.value.trim();if(!q)return;input.value='';document.getElementById('transcript-text').textContent=q;document.getElementById('transcript-box').classList.add('visible');askQuestion(q);setTimeout(function(){document.getElementById('transcript-box').classList.remove('visible');},8000);}
-function renderAnswer(text){return text.replace(/```(\w*)\n?([\s\S]*?)```/g,function(_,l,c){return '<pre>'+escapeHtml(c.trim())+'</pre>';}).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/\n/g,'<br>');}
-function escapeHtml(t){return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function renderAnswer(text){return escapeHtml(text).replace(/```(\w*)\n?([\s\S]*?)```/g,function(_,l,c){return '<pre>'+c.trim()+'</pre>';}).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/\n/g,'<br>');}
+function escapeHtml(t){return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 function setStatus(msg){document.getElementById('status-text').textContent=msg;}
 function openSettings(){ipcRenderer.send('open-settings');}
 function minimize(){
