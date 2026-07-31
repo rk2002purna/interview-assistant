@@ -36,6 +36,9 @@ class SessionController extends EventEmitter {
 
     /** @type {ReturnType<typeof setInterval>|null} */
     this._tickTimer = null;
+
+    /** @type {boolean} Whether the one-time grace extension has been attempted this session. */
+    this._extendAttempted = false;
   }
 
   /**
@@ -77,6 +80,7 @@ class SessionController extends EventEmitter {
       remaining_seconds: this._computeRemainingSeconds(expires_at),
       is_trial: !!is_trial
     };
+    this._extendAttempted = false;
 
     this._startTick();
     this._emitState();
@@ -85,8 +89,10 @@ class SessionController extends EventEmitter {
   }
 
   /**
-   * Extends the currently active paid session by calling POST /sessions/:id/extend.
-   * Consumes one session credit and adds 90 minutes to the session.
+   * Extends the currently active session by calling POST /sessions/:id/extend.
+   * One-time mid-interview grace: adds ~45 minutes so the interview is not cut
+   * off when paid time runs out. The extension is billed into a possibly-
+   * negative balance and reconciled on the user's next top-up.
    *
    * @returns {Promise<{ session_id: string, expires_at: string } | { error: { code: string, message: string } }>}
    */
@@ -299,8 +305,18 @@ class SessionController extends EventEmitter {
     const remaining = this._computeRemainingSeconds(this._activeSession.expires_at);
 
     if (remaining <= 0) {
-      // Session expired locally — clear and emit final state
-      this._clearSession();
+      // Paid time ran out. Do NOT end locally — the backend grants a one-time
+      // grace extension so the interview is never cut off mid-answer. Attempt
+      // the extension once; if it is unavailable (already used) confirm with
+      // the server, which clears the session only when it is truly over.
+      if (!this._extendAttempted) {
+        this._extendAttempted = true;
+        this.extend()
+          .then((r) => { if (!r || r.error) this.getActive().catch(() => {}); })
+          .catch(() => { this.getActive().catch(() => {}); });
+      } else {
+        this.getActive().catch(() => {});
+      }
       return;
     }
 
@@ -323,6 +339,7 @@ class SessionController extends EventEmitter {
    */
   _clearSession() {
     this._activeSession = null;
+    this._extendAttempted = false;
     this._stopTick();
     this._emitState();
   }

@@ -277,6 +277,9 @@
   });
 
   (async function checkAuth() {
+    // Only skip the login screen if we ALREADY have a valid local session.
+    // We never auto-open the browser on startup — the user must explicitly
+    // choose Sign in / Create account / Continue with Google.
     try {
       const user = await ipcRenderer.invoke('auth:getCurrentUser');
       if (user) {
@@ -285,19 +288,13 @@
       }
     } catch {}
 
-    // If user just explicitly signed out, skip auto-login so they can switch accounts.
     const didLogout = await ipcRenderer.invoke('auth:isJustLoggedOut');
-    if (didLogout) {
-      setStatus('Signed out. Sign in to continue.', 'waiting');
-      return;
-    }
-
-    // No local session — try auto-login via browser session.
-    // Opens /desktop-auth which checks for existing browser tokens.
-    // If found, redirects back via interview-assistant://callback protocol.
-    // If not found, redirects to /login?desktop=1 for manual sign-in.
-    setStatus('Checking for existing session…', 'waiting');
-    ipcRenderer.send('open-browser-login');
+    setStatus(
+      didLogout
+        ? 'Signed out. Sign in to continue.'
+        : 'Sign in or create an account to continue.',
+      'waiting'
+    );
   })();
 </script>
 </body>

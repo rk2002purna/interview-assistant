@@ -361,6 +361,40 @@ export interface WalletInfo {
   estimated_minutes_remaining: number;
 }
 
+export interface WelcomeCreditNotice {
+  show_banner: boolean;
+  amount_paise: number;
+}
+
+export async function claimWelcomeCreditNotice(claimToken: string): Promise<WelcomeCreditNotice | null> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return await apiRequest<WelcomeCreditNotice>('/me/welcome-credit-notice/claim', {
+        method: 'POST',
+        body: { claim_token: claimToken },
+      });
+    } catch {
+      if (attempt === 0) await new Promise((resolve) => window.setTimeout(resolve, 250));
+    }
+  }
+  return null;
+}
+
+export async function acknowledgeWelcomeCreditNotice(claimToken: string): Promise<boolean> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const result = await apiRequest<{ acknowledged: boolean }>('/me/welcome-credit-notice/acknowledge', {
+        method: 'POST',
+        body: { claim_token: claimToken },
+      });
+      return result.acknowledged;
+    } catch {
+      if (attempt === 0) await new Promise((resolve) => window.setTimeout(resolve, 250));
+    }
+  }
+  return false;
+}
+
 export async function getWallet(): Promise<WalletInfo | null> {
   try {
     return await apiRequest<WalletInfo>('/me/wallet');

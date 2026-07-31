@@ -31,6 +31,9 @@
     #start-session-btn:hover { opacity: 0.9; transform: scale(1.02); }
     #start-session-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
     #session-cta .cta-subtitle { font-size: 10px; color: #a0aec0; }
+    #session-cta .role-label { display: block; font-size: 10px; color: #a0aec0; margin-bottom: 4px; text-align: left; }
+    #interview-role { width: 100%; margin-bottom: 8px; padding: 6px 8px; font-size: 12px; background: #1a2233; color: #e2e8f0; border: 1px solid rgba(99,179,237,0.25); border-radius: 6px; outline: none; }
+    #interview-role:focus { border-color: rgba(99,179,237,0.55); }
     /* Pack cards */
     #packs-container { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; padding: 0 4px; }
     #packs-container.hidden { display: none; }
@@ -221,6 +224,19 @@
   </div>
   <!-- Session CTA: visible when no session is active -->
   <div id="session-cta" class="hidden">
+    <label for="interview-role" class="role-label">Interview role / domain</label>
+    <select id="interview-role" onchange="setInterviewRole(this.value)">
+      <option value="">General</option>
+      <option value="Software Engineering / Coding">Software Engineering</option>
+      <option value="Data Science / Analytics / ML">Data / Analytics / ML</option>
+      <option value="Data Engineering / DevOps / Cloud">Data Eng / DevOps / Cloud</option>
+      <option value="Finance / Accounting / Investment">Finance / Accounting</option>
+      <option value="Product Management">Product Management</option>
+      <option value="Marketing / Sales">Marketing / Sales</option>
+      <option value="Consulting / Business Analyst">Consulting / Business</option>
+      <option value="Design / UX">Design / UX</option>
+      <option value="Other">Other</option>
+    </select>
     <button id="start-session-btn" onclick="startSession()">&#9654; Start Interview Session</button>
     <div class="cta-subtitle" id="cta-subtitle">Pay as you go — ₹5/min from your wallet. ₹50 free on signup.</div>
     <div id="packs-container" class="hidden"></div>
@@ -231,10 +247,10 @@
       <div class="popup-title">Session Ending Soon</div>
       <div class="popup-body" id="extend-popup-body">
         Your session will expire in <strong id="extend-countdown">5:00</strong>.
-        You have extra session credits — extend by 90 minutes?
+        Extend by 45 minutes? Extra time is billed at &#8377;5/min from your wallet.
       </div>
       <div class="popup-actions">
-        <button class="btn-extend" id="btn-extend-session" onclick="extendSession()">Extend (+90 min)</button>
+        <button class="btn-extend" id="btn-extend-session" onclick="extendSession()">Extend (+45 min)</button>
         <button class="btn-dismiss" onclick="dismissExtendPopup()">Dismiss</button>
       </div>
     </div>
@@ -287,7 +303,7 @@ let apiKey = '', deepseekApiKey = '', geminiApiKey = '', cerebrasApiKey = '', di
 //   path     : /v1/chat/completions
 //   auth     : Bearer ${process.env.DIGITALOCEAN_API_KEY}
 //   NOTE     : Do NOT send stream_options.include_usage to DigitalOcean
-let resumeContext = '', jobContext = '';
+let resumeContext = '', jobContext = '', interviewRole = '';
 // Routing config - holds primary + fallback for text and vision
 let routing = {
   textPrimary: { provider: 'gemini', model: 'gemini-flash-latest' },
@@ -370,6 +386,9 @@ async function reloadConfig() {
   digitaloceanApiKey = config.digitaloceanApiKey || '';
   resumeContext = config.resumeContext || '';
   jobContext = config.jobContext || '';
+  interviewRole = config.interviewRole || '';
+  var roleSel = document.getElementById('interview-role');
+  if (roleSel) roleSel.value = interviewRole;
   if (config.routing) {
     if (config.routing.textPrimary) routing.textPrimary = config.routing.textPrimary;
     if (config.routing.textFallback) routing.textFallback = config.routing.textFallback;
@@ -550,12 +569,12 @@ async function extendSession() {
       if (result && result.error) {
         document.getElementById('extend-popup-body').innerHTML =
           'Could not extend: ' + (result.error.message || result.error.code);
-        btn.textContent = 'No Credits';
+        btn.textContent = 'Unavailable';
         setTimeout(dismissExtendPopup, 3000);
       } else {
         // Success — pop-up will auto-dismiss on next state tick with updated timer
         document.getElementById('extend-popup-body').innerHTML =
-          'Session extended! You now have <strong>90 more minutes</strong>.';
+          'Session extended! You now have <strong>45 more minutes</strong>.';
         btn.style.display = 'none';
         document.querySelector('#extend-popup .btn-dismiss').textContent = 'Close';
         extendPopupDismissed = true;
@@ -577,11 +596,11 @@ function dismissExtendPopup() {
   // Reset button state for next time
   var btn = document.getElementById('btn-extend-session');
   btn.disabled = false;
-  btn.textContent = 'Extend (+90 min)';
+  btn.textContent = 'Extend (+45 min)';
   btn.style.display = '';
   document.getElementById('extend-popup-body').innerHTML =
     'Your session will expire in <strong id="extend-countdown">5:00</strong>.' +
-    ' You have extra session credits — extend by 90 minutes?';
+    ' Extend by 45 minutes? Extra time is billed at \u20B95/min from your wallet.';
   document.querySelector('#extend-popup .btn-dismiss').textContent = 'Dismiss';
 }
 
@@ -726,6 +745,11 @@ async function purchasePack(slug) {
 // Build a system prompt with optional resume/job context appended
 function buildSystemPrompt(basePrompt) {
   var contextBlock = '';
+  if (interviewRole) {
+    contextBlock += '\n\nINTERVIEW ROLE / DOMAIN: ' + interviewRole +
+      '\nAnswer strictly from the perspective, terminology, and expected depth of a ' + interviewRole +
+      ' interview. Do NOT give software or coding answers unless the question is explicitly about programming. If a question is ambiguous, interpret it within the ' + interviewRole + ' domain.';
+  }
   if (resumeContext) {
     contextBlock += '\n\nUSER\'S BACKGROUND/RESUME:\n' + resumeContext;
   }
@@ -736,6 +760,16 @@ function buildSystemPrompt(basePrompt) {
     contextBlock += '\n\nUse this context to tailor your answers — frame examples around the user\'s experience and align responses with the target role when relevant.';
   }
   return basePrompt + contextBlock;
+}
+
+// Persist the chosen interview role/domain so answers are tailored to it.
+async function setInterviewRole(value) {
+  interviewRole = value || '';
+  try {
+    const cfg = await ipcRenderer.invoke('load-config');
+    cfg.interviewRole = interviewRole;
+    ipcRenderer.send('save-config', cfg);
+  } catch (e) { /* non-fatal */ }
 }
 
 function getKeyForProvider(provider) {
@@ -2225,7 +2259,7 @@ async function askQuestion(question, requestGuard){
     });
 
     var aiPromise=callAIStream(conversationHistory.slice(-6),
-      buildSystemPrompt('You are a real-time interview assistant. Give concise direct answers. For coding: working code. For behavioral: STAR method. Keep under 200 words unless complex. No preamble.'),
+      buildSystemPrompt('You are a real-time interview assistant. Give concise, direct, correct answers appropriate to the candidate\'s target role/domain. For programming questions give working code; for behavioral questions use the STAR method; for domain questions (finance, product, data, design, etc.) give precise domain-specific answers. Keep under 200 words unless the question requires more. No preamble.'),
       function(delta){
         if(!streamRequestIsCurrent())return;
         if(firstChunkTimer){clearTimeout(firstChunkTimer);firstChunkTimer=null;}

@@ -35,6 +35,11 @@ function handleProtocolUrl(urlStr) {
       authController.handleLoginSuccess({ accessToken, refreshToken, expiresIn });
 
       if (mainWindow && !mainWindow.isDestroyed()) {
+        // If the user collapsed the app to the mini button before signing in,
+        // restore full size + focus first. Otherwise the post-login UI loads
+        // into the 48px corner square, which looks frozen and is not usable.
+        restoreFromMiniMode();
+        if (!mainWindow.isVisible()) mainWindow.showInactive();
         mainWindow.webContents.send('auth-callback-success');
         // Auto-navigate to the main app after a brief delay for the UI to update
         setTimeout(() => {
@@ -101,10 +106,12 @@ function createMainWindow() {
     hasShadow: false,
   });
 
-  // DEMO MODE: screen hiding disabled so viewers can see the app
-  // if (process.platform === 'win32' || process.platform === 'darwin') {
-  //   mainWindow.setContentProtection(true);
-  // }
+  // Exclude the window from screen capture / screen sharing so it stays
+  // invisible to interviewers even when the user shares their entire screen.
+  // (Windows: WDA_EXCLUDEFROMCAPTURE, macOS: NSWindowSharingTypeNone.)
+  if (process.platform === 'win32' || process.platform === 'darwin') {
+    mainWindow.setContentProtection(true);
+  }
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'login.html'));
 
@@ -137,10 +144,10 @@ function createSettingsWindow() {
   });
   settingsWindow.loadFile(path.join(__dirname, 'renderer', 'settings.html'));
 
-  // DEMO MODE: screen hiding disabled so viewers can see the app
-  // if (process.platform === 'win32' || process.platform === 'darwin') {
-  //   settingsWindow.setContentProtection(true);
-  // }
+  // Keep the settings window hidden from screen capture too.
+  if (process.platform === 'win32' || process.platform === 'darwin') {
+    settingsWindow.setContentProtection(true);
+  }
 
   settingsWindow.on('closed', () => settingsWindow = null);
 }
@@ -275,15 +282,17 @@ ipcMain.on('minimize-window', () => {
   }
 });
 
-ipcMain.on('restore-window', () => {
-  if (!mainWindow || !miniMode) return;
-  if (savedBounds) {
-    mainWindow.setResizable(true);
-    mainWindow.setMinimumSize(200, 300);
-    mainWindow.setBounds(savedBounds);
-  }
+function restoreFromMiniMode() {
+  if (!mainWindow || mainWindow.isDestroyed() || !miniMode) return;
+  mainWindow.setResizable(true);
+  mainWindow.setMinimumSize(200, 300);
+  if (savedBounds) mainWindow.setBounds(savedBounds);
   miniMode = false;
-  mainWindow.webContents.send('mini-mode', false);
+  if (!mainWindow.webContents.isDestroyed()) mainWindow.webContents.send('mini-mode', false);
+}
+
+ipcMain.on('restore-window', () => {
+  restoreFromMiniMode();
 });
 
 // ── On-Camera mode (stick to top-center, dynamic height) ────────────────────
@@ -360,10 +369,10 @@ ipcMain.on('hide-for-screenshot', () => {
 ipcMain.on('show-after-screenshot', () => {
   if (mainWindow) {
     mainWindow.showInactive();
-    // DEMO MODE: screen hiding disabled so viewers can see the app
-    // if (process.platform === 'win32' || process.platform === 'darwin') {
-    //   mainWindow.setContentProtection(true);
-    // }
+    // Re-assert capture exclusion after re-showing the window.
+    if (process.platform === 'win32' || process.platform === 'darwin') {
+      mainWindow.setContentProtection(true);
+    }
     if (process.platform === 'darwin') {
       mainWindow.setAlwaysOnTop(true, 'floating', 1);
       mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });

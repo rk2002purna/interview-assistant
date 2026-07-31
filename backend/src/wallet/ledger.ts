@@ -62,6 +62,12 @@ export interface AppendWalletEntryInput {
   readonly actingAdminId?: string | null;
   /** Optional free-text note, max 500 chars (CHECK constraint in schema). */
   readonly note?: string | null;
+  /**
+   * When true, a debit may drive the balance below zero. Used only for the
+   * one-time mid-interview grace extension, whose debt is reconciled on the
+   * user's next top-up. Credits are always accepted regardless of this flag.
+   */
+  readonly allowNegative?: boolean;
 }
 
 /** Result of a successful wallet insert. */
@@ -228,7 +234,12 @@ export async function appendWalletEntry(
   const priorBalance = await getWalletBalancePaise(tx, input.userId);
   const projected = priorBalance + input.amountPaise;
 
-  if (projected < 0) {
+  // Reject only a DEBIT that would drive the balance negative, and only when
+  // the caller has not explicitly allowed it (grace extension). Credits
+  // (top-up, refund, bonus, admin_credit) are always accepted — even when they
+  // only partially clear an existing debt — so reconciling a negative balance
+  // never fails.
+  if (projected < 0 && input.amountPaise < 0 && !input.allowNegative) {
     throw new WalletError(
       'insufficient_balance',
       `wallet debit rejected: projected balance = ${projected} paise`,
@@ -274,3 +285,18 @@ export const SIGNUP_BONUS_PAISE = 5000;
  * it. 10 hours is far beyond any real interview.
  */
 export const MAX_SESSION_MINUTES = 600;
+
+/**
+ * Minimum wallet balance (paise) required to START an interview session (Rs 50).
+ * A buffer large enough that a one-time mid-interview grace extension can be
+ * advanced on credit and reconciled on the user's next top-up.
+ */
+export const SESSION_START_MIN_PAISE = 5000;
+
+/**
+ * One-time grace extension (minutes) granted automatically when a session's
+ * paid time runs out mid-interview, so the interview is never cut off. These
+ * minutes are billed into a possibly-negative balance and reconciled on the
+ * next top-up.
+ */
+export const AUTO_EXTEND_MINUTES = 45;
