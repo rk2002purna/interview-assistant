@@ -22,7 +22,9 @@ module.exports = {
       },
       error_file: '/var/log/upnod/backend-error.log',
       out_file: '/var/log/upnod/backend-out.log',
-      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      // No log_date_format: the app already stamps each JSON line with its own
+      // `timestamp` field. Keeping stdout as pure JSON lets the CloudWatch
+      // agent and Logs Insights auto-parse fields (status, path, latency_ms).
       merge_logs: true,
     },
   ],

@@ -28,6 +28,7 @@ import type { TranscribeFn } from './ai/audio-routes.js';
 import { buildVisionRouter } from './ai/vision-routes.js';
 import type { VerificationEmailSender } from './auth/register-routes.js';
 import type { PasswordResetEmailSender } from './auth/password-reset-routes.js';
+import { requestLogger } from './http/request-logger.js';
 
 // Re-export scheduled task handlers for platform invocation.
 export { runSessionExpirySweep } from './sessions/expiry-sweep.js';
@@ -75,6 +76,13 @@ export interface BuildAppDeps {
  */
 export function buildApp(deps: BuildAppDeps = {}): Hono {
   const app = new Hono();
+
+  // Request logging — outermost middleware so every API call (matched
+  // routes, 404s, and handlers that throw) is recorded exactly once with a
+  // correlation id. Emits structured JSON to stdout; on EC2 the CloudWatch
+  // agent ships these lines to CloudWatch Logs. Never logs bodies, headers,
+  // query strings, or secrets. See src/http/request-logger.ts.
+  app.use('*', requestLogger());
 
   // CORS — allow requests from web app and admin dashboard
   app.use('*', cors({
