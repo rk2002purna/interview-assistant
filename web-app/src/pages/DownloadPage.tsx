@@ -4,12 +4,12 @@ import Footer from '../components/Footer';
 
 // ─── Download URLs — GitHub Releases (public, no login required) ─────────────
 export const DOWNLOAD_URLS = {
-  windows: 'https://github.com/rk2002purna/interview-assistant/releases/download/windows/UpNod.Setup.1.0.0.exe',
-  macArm:  'https://github.com/rk2002purna/interview-assistant/releases/download/UpNodForMacNew/UpNod-1.0.0-arm64.dmg',
-  macIntel:'https://github.com/rk2002purna/interview-assistant/releases/download/UpNodForMacOld/UpNod-1.0.0.dmg',
+  windows: 'https://github.com/rk2002purna/interview-assistant/releases/download/windows/UpNod.Setup.2.0.0.exe',
+  macArm:  'https://github.com/rk2002purna/interview-assistant/releases/download/UpNodForMacNew/UpNod-2.0.0-arm64.dmg',
+  macIntel:'https://github.com/rk2002purna/interview-assistant/releases/download/UpNodForMacOld/UpNod-2.0.0.dmg',
 };
 
-export const APP_VERSION = '1.0.0';
+export const APP_VERSION = '2.0.0';
 
 type MacChip = 'arm64' | 'x64';
 

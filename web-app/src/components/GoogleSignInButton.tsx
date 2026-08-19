@@ -59,7 +59,11 @@ export default function GoogleSignInButton({ onCredential, onError, disabled }: 
       onErrorRef.current?.('Google sign-in is not configured (missing VITE_GOOGLE_CLIENT_ID).');
       return;
     }
+
     let cancelled = false;
+    let resizeObserver: ResizeObserver | undefined;
+    let renderedWidth = 0;
+
     loadGoogleScript()
       .then(() => {
         if (cancelled || !containerRef.current) return;
@@ -71,20 +75,34 @@ export default function GoogleSignInButton({ onCredential, onError, disabled }: 
             else onErrorRef.current?.('No credential returned from Google.');
           },
         });
-        containerRef.current.innerHTML = '';
-        google.accounts.id.renderButton(containerRef.current, {
-          theme: 'filled_blue',
-          size: 'large',
-          type: 'standard',
-          text: 'continue_with',
-          shape: 'rectangular',
-          logo_alignment: 'left',
-          width: 320,
-        });
+
+        const renderButton = () => {
+          if (cancelled || !containerRef.current) return;
+          const availableWidth = Math.floor(containerRef.current.getBoundingClientRect().width) || 320;
+          const width = Math.max(200, Math.min(400, availableWidth));
+          if (width === renderedWidth) return;
+          renderedWidth = width;
+          containerRef.current.innerHTML = '';
+          google.accounts.id.renderButton(containerRef.current, {
+            theme: 'filled_blue',
+            size: 'large',
+            type: 'standard',
+            text: 'continue_with',
+            shape: 'rectangular',
+            logo_alignment: 'left',
+            width,
+          });
+        };
+
+        renderButton();
+        resizeObserver = new ResizeObserver(renderButton);
+        resizeObserver.observe(containerRef.current);
       })
       .catch(() => onErrorRef.current?.('Could not load Google sign-in. Check your connection.'));
+
     return () => {
       cancelled = true;
+      resizeObserver?.disconnect();
     };
   }, [clientId]);
 
@@ -95,12 +113,13 @@ export default function GoogleSignInButton({ onCredential, onError, disabled }: 
       style={{
         display: 'flex',
         justifyContent: 'center',
+        width: '100%',
         marginBottom: 8,
         opacity: disabled ? 0.6 : 1,
         pointerEvents: disabled ? 'none' : 'auto',
       }}
     >
-      <div ref={containerRef} />
+      <div ref={containerRef} style={{ width: '100%', maxWidth: 400 }} />
     </div>
   );
 }
