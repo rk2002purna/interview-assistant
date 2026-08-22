@@ -6,17 +6,12 @@
  * request memory, then forwards them to Groq Whisper with a 120-second
  * timeout.
  *
- * Flow:
- *   1. Authenticate via JWT (R7.2)
- *   2. Verify active interview session (R7.3)
- *   3. Parse multipart form data
- *   4. Validate file size ≤ 25 MB (R7.1)
- *   5. Validate duration ≤ 5 min (R7.1)
- *   6. Check idempotency cache (R7.6, R7.7)
- *   7. Resolve Whisper provider key (R4.5)
- *   8. Forward the in-memory audio to Whisper (R7.5)
- *   9. Record usage row (R9.1)
- *   10. Cache response for idempotency (R7.6)
+ * The Whisper model is chosen server-side from the admin STT config
+ * (app_config key 'stt_model'), which holds a primary model and an optional
+ * fallback. The primary is tried first; if its upstream call fails, the
+ * fallback is tried. This mirrors the text/vision routing so operators can
+ * change or fail over STT models from the admin dashboard with no client
+ * release.
  *
  * Requirements: 7.1, 7.4, 7.5.
  */
@@ -33,6 +28,7 @@ import {
   insertIdempotencyCache,
   IdempotencyKeyConflictError,
 } from './idempotency.js';
+import type { Logger } from '../log/logger.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -41,6 +37,8 @@ import {
 export interface AudioRouterDeps {
   /** Postgres pool for queries. */
   readonly pool: Pool;
+  /** Optional structured logger. */
+  readonly logger?: Logger;
   /** Clock injection for tests. Defaults to wall clock. */
   readonly now?: () => Date;
   /**
@@ -76,8 +74,9 @@ const MAX_DURATION_SECONDS = 5 * 60;
 /** Upstream timeout for Whisper: 120 seconds. */
 const WHISPER_TIMEOUT_MS = 120_000;
 
-/** Default Whisper model when none specified. */
-const DEFAULT_WHISPER_MODEL = 'whisper-large-v3';
+/** Default Whisper model + fallback when no admin config is present. */
+const DEFAULT_WHISPER_MODEL = 'whisper-large-v3-turbo';
+const DEFAULT_WHISPER_FALLBACK = 'whisper-large-v3';
 
 // ---------------------------------------------------------------------------
 // SQL
@@ -112,7 +111,6 @@ async function defaultTranscribe(
   apiKey: string,
   signal: AbortSignal,
 ): Promise<string> {
-  // Build multipart form data manually for the Whisper API
   const boundary = `----FormBoundary${randomUUID().replace(/-/g, '')}`;
   const CRLF = '\r\n';
 
@@ -134,18 +132,15 @@ async function defaultTranscribe(
     `${model}${CRLF}`,
   ));
 
-  // Force English transcription. Without an explicit `language`, Whisper
-  // auto-detects the spoken language and may transcribe (or translate) the
-  // audio into another language such as Hindi. That non-English transcript
-  // then flows into the LLM, which replies in the same language. Pinning
-  // the language to English keeps the whole pipeline English-only.
+  // Force English transcription so a non-English transcript never flows into
+  // the LLM and flips the reply language.
   parts.push(Buffer.from(
     `--${boundary}${CRLF}` +
     `Content-Disposition: form-data; name="language"${CRLF}${CRLF}` +
     `en${CRLF}`,
   ));
 
-  // Deterministic decoding + JSON response for stable, repeatable output.
+  // Deterministic decoding + JSON response for stable output.
   parts.push(Buffer.from(
     `--${boundary}${CRLF}` +
     `Content-Disposition: form-data; name="response_format"${CRLF}${CRLF}` +
@@ -164,7 +159,6 @@ async function defaultTranscribe(
     `Technical interview question about software engineering, coding, or behavioral topics.${CRLF}`,
   ));
 
-  // Closing boundary
   parts.push(Buffer.from(`--${boundary}--${CRLF}`));
 
   const body = Buffer.concat(parts);
@@ -203,6 +197,41 @@ class UpstreamProviderError extends Error {
     super(`Upstream provider error (HTTP ${upstreamStatus}): ${detail}`);
     this.name = 'UpstreamProviderError';
     this.httpStatus = upstreamStatus;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// STT config
+// ---------------------------------------------------------------------------
+
+interface SttModels {
+  primary: string;
+  fallback: string | null;
+}
+
+/**
+ * Read the admin-configured STT primary + fallback model from app_config.
+ * Falls back to sensible defaults on any missing/malformed value.
+ */
+async function readSttModels(pool: Pool): Promise<SttModels> {
+  try {
+    const result = await pool.query<{ value: string }>(
+      `SELECT value FROM app_config WHERE key = 'stt_model' LIMIT 1`,
+    );
+    const row = result.rows[0];
+    if (!row) return { primary: DEFAULT_WHISPER_MODEL, fallback: DEFAULT_WHISPER_FALLBACK };
+    const parsed = JSON.parse(row.value) as { model?: unknown; fallbackModel?: unknown };
+    const primary =
+      typeof parsed.model === 'string' && parsed.model.trim()
+        ? parsed.model.trim()
+        : DEFAULT_WHISPER_MODEL;
+    const fallback =
+      typeof parsed.fallbackModel === 'string' && parsed.fallbackModel.trim()
+        ? parsed.fallbackModel.trim()
+        : null;
+    return { primary, fallback };
+  } catch {
+    return { primary: DEFAULT_WHISPER_MODEL, fallback: DEFAULT_WHISPER_FALLBACK };
   }
 }
 
@@ -259,7 +288,6 @@ export function buildAudioRouter(deps: AudioRouterDeps): Hono {
       );
     }
 
-    // Check if session has expired
     const now = deps.now ? deps.now() : new Date();
     const expiresAt = new Date(activeSession.expires_at);
     if (now >= expiresAt) {
@@ -288,30 +316,12 @@ export function buildAudioRouter(deps: AudioRouterDeps): Hono {
       );
     }
 
-    // Resolve the Whisper model. Priority:
-    //   1. Admin-configured STT model (app_config key 'stt_model') — global
-    //   2. Client-supplied "model" form field
-    //   3. DEFAULT_WHISPER_MODEL
-    // The admin selection wins so it applies to every client without a
-    // client-side release.
-    const modelField = formData.get('model');
-    let model = typeof modelField === 'string' && modelField.trim()
-      ? modelField.trim()
-      : DEFAULT_WHISPER_MODEL;
-    try {
-      const sttCfg = await deps.pool.query(
-        `SELECT value FROM app_config WHERE key = 'stt_model' LIMIT 1`,
-      );
-      const sttRow = sttCfg.rows[0] as { value: string } | undefined;
-      if (sttRow) {
-        const parsed = JSON.parse(sttRow.value) as { model?: unknown };
-        if (parsed && typeof parsed.model === 'string' && parsed.model.trim()) {
-          model = parsed.model.trim();
-        }
-      }
-    } catch {
-      // Keep the client/default model if the config is missing or unreadable.
-    }
+    // Resolve the Whisper models server-side (primary + optional fallback).
+    // The admin selection applies to every client without a client release.
+    const { primary: primaryModel, fallback: fallbackModel } = await readSttModels(deps.pool);
+    const modelsToTry = fallbackModel && fallbackModel !== primaryModel
+      ? [primaryModel, fallbackModel]
+      : [primaryModel];
 
     // Get optional duration field (client-reported duration in seconds)
     const durationField = formData.get('duration');
@@ -355,16 +365,15 @@ export function buildAudioRouter(deps: AudioRouterDeps): Hono {
       }
     }
 
-    // 6. Check idempotency (R7.6, R7.7)
+    // 6. Check idempotency (R7.6, R7.7) — keyed on file + primary model.
     const idempotencyKey = c.req.header('Idempotency-Key') ?? null;
     let requestHash: Buffer | null = null;
 
     if (idempotencyKey) {
-      // Hash based on file content + model (canonical representation)
       requestHash = computeRequestHash({
         file_size: fileBuffer.length,
         file_name: file.name,
-        model,
+        model: primaryModel,
       });
 
       try {
@@ -388,22 +397,21 @@ export function buildAudioRouter(deps: AudioRouterDeps): Hono {
       }
     }
 
-    // 7. Resolve provider key for Whisper (uses 'groq' provider).
-    // The audio buffer remains request-scoped and is sent directly upstream;
-    // no database or object-storage write is performed.
+    // 7. Resolve provider key for Whisper (Groq).
     const mimeType = file.type || 'audio/webm';
     const fileName = file.name || 'audio.webm';
 
     let apiKey: string;
     try {
-      apiKey = await resolveProviderKey(deps.pool, 'groq');
+      apiKey = await resolveProviderKey(deps.pool, 'groq', {
+        ...(deps.logger ? { logger: deps.logger } : {}),
+      });
     } catch (err) {
       if (err instanceof ProviderKeyUnavailableError) {
-        // Record failed usage
         await recordUsage(deps.pool, {
           userId,
           sessionId: activeSession.id,
-          model,
+          model: primaryModel,
           status: 'failed',
           upstreamHttpStatus: null,
           idempotencyKey,
@@ -417,72 +425,76 @@ export function buildAudioRouter(deps: AudioRouterDeps): Hono {
       throw err;
     }
 
-    // 8. Forward to Whisper with 120-second timeout (R7.5)
-    let transcribedText: string;
-    let upstreamStatus: number | null = null;
+    // 8. Try each model (primary, then fallback) with a 120s timeout each.
+    let transcribedText: string | null = null;
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), WHISPER_TIMEOUT_MS);
-
-    try {
-      transcribedText = await transcribeFn(
-        fileBuffer,
-        fileName,
-        mimeType,
-        model,
-        apiKey,
-        controller.signal,
-      );
-      upstreamStatus = 200;
-    } catch (err) {
-      clearTimeout(timeout);
-
-      // Determine if it was a timeout or upstream error
-      const isTimeout = err instanceof Error && err.name === 'AbortError';
-      if (err instanceof UpstreamProviderError) {
-        upstreamStatus = err.httpStatus;
+    for (const model of modelsToTry) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), WHISPER_TIMEOUT_MS);
+      try {
+        const text = await transcribeFn(
+          fileBuffer,
+          fileName,
+          mimeType,
+          model,
+          apiKey,
+          controller.signal,
+        );
+        clearTimeout(timeout);
+        transcribedText = text;
+        await recordUsage(deps.pool, {
+          userId,
+          sessionId: activeSession.id,
+          model,
+          status: 'success',
+          upstreamHttpStatus: 200,
+          idempotencyKey,
+          now: deps.now,
+        });
+        break;
+      } catch (err) {
+        clearTimeout(timeout);
+        const isTimeout = err instanceof Error && err.name === 'AbortError';
+        const upstreamStatus = err instanceof UpstreamProviderError ? err.httpStatus : null;
+        await recordUsage(deps.pool, {
+          userId,
+          sessionId: activeSession.id,
+          model,
+          status: 'failed',
+          upstreamHttpStatus: upstreamStatus,
+          idempotencyKey,
+          now: deps.now,
+        });
+        deps.logger?.error('ai_audio_upstream_error', {
+          user_id: userId,
+          session_id: activeSession.id,
+          operation_type: 'audio',
+          model_id: model,
+          status: 'failed',
+          upstream_http_status: upstreamStatus,
+          error_type: isTimeout ? 'timeout' : 'upstream_error',
+        });
+        // Try the next model (if any).
       }
+    }
 
-      // Record failed usage
-      await recordUsage(deps.pool, {
-        userId,
-        sessionId: activeSession.id,
-        model,
-        status: 'failed',
-        upstreamHttpStatus: upstreamStatus,
-        idempotencyKey,
-        now: deps.now,
-      });
-
+    if (transcribedText === null) {
+      // Clear the API key from memory before returning.
+      apiKey = '';
       return c.json(
         {
           error: {
             code: 'upstream_provider_error',
-            message: isTimeout
-              ? 'transcription request timed out (120s)'
-              : 'upstream transcription provider returned an error',
+            message: 'transcription failed on all configured models',
           },
         },
         502,
       );
-    } finally {
-      clearTimeout(timeout);
     }
-
-    // 9. Record successful usage
-    await recordUsage(deps.pool, {
-      userId,
-      sessionId: activeSession.id,
-      model,
-      status: 'success',
-      upstreamHttpStatus: upstreamStatus,
-      idempotencyKey,
-      now: deps.now,
-    });
 
     const responseBody = { text: transcribedText };
 
-    // 10. Cache response for idempotency (R7.6)
+    // 9. Cache response for idempotency (R7.6)
     if (idempotencyKey && requestHash) {
       try {
         await insertIdempotencyCache(
@@ -493,7 +505,7 @@ export function buildAudioRouter(deps: AudioRouterDeps): Hono {
           responseBody,
         );
       } catch {
-        // Idempotency cache insert failure is non-fatal
+        // Idempotency cache insert failure is non-fatal.
       }
     }
 
@@ -534,7 +546,6 @@ async function recordUsage(pool: Pool, input: RecordUsageInput): Promise<void> {
       input.idempotencyKey,
     ]);
   } catch {
-    // Usage recording failure is non-fatal; the transcription result
-    // has already been produced and should still be returned to the client.
+    // Usage recording failure is non-fatal.
   }
 }

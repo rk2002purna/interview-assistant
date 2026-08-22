@@ -11,6 +11,8 @@ import { apiRequest, ApiClientError } from '../api/client';
 
 interface SttConfig {
   model: string;
+  /** Optional secondary model tried if the primary transcription fails. */
+  fallbackModel: string | null;
 }
 
 const STT_MODELS: { id: string; label: string; hint: string }[] = [
@@ -29,7 +31,10 @@ const STT_MODELS: { id: string; label: string; hint: string }[] = [
 const DEFAULT_MODEL = 'whisper-large-v3-turbo';
 
 export default function SpeechToTextPage() {
-  const [config, setConfig] = useState<SttConfig>({ model: DEFAULT_MODEL });
+  const [config, setConfig] = useState<SttConfig>({
+    model: DEFAULT_MODEL,
+    fallbackModel: 'whisper-large-v3',
+  });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -41,7 +46,7 @@ export default function SpeechToTextPage() {
     try {
       const data = await apiRequest<{ stt: SttConfig }>('/admin/stt');
       if (data.stt?.model) {
-        setConfig({ model: data.stt.model });
+        setConfig({ model: data.stt.model, fallbackModel: data.stt.fallbackModel ?? null });
       }
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 404) {
@@ -101,10 +106,10 @@ export default function SpeechToTextPage() {
           <h2 style={styles.sectionTitle}>🎙 Transcription Model (Groq Whisper)</h2>
 
           <div style={styles.field}>
-            <label style={styles.label}>Whisper Model</label>
+            <label style={styles.label}>Primary Model</label>
             <select
               value={config.model}
-              onChange={(e) => setConfig({ model: e.target.value })}
+              onChange={(e) => setConfig((prev) => ({ ...prev, model: e.target.value }))}
               style={styles.select}
             >
               {STT_MODELS.map((m) => (
@@ -113,6 +118,27 @@ export default function SpeechToTextPage() {
             </select>
           </div>
           {selected && <p style={styles.hint}>{selected.hint}</p>}
+
+          <div style={{ ...styles.field, marginTop: '1rem' }}>
+            <label style={styles.label}>
+              Fallback Model <span style={{ color: '#9ca3af' }}>(used if the primary fails)</span>
+            </label>
+            <select
+              value={config.fallbackModel ?? 'none'}
+              onChange={(e) =>
+                setConfig((prev) => ({
+                  ...prev,
+                  fallbackModel: e.target.value === 'none' ? null : e.target.value,
+                }))
+              }
+              style={styles.select}
+            >
+              <option value="none">— None —</option>
+              {STT_MODELS.map((m) => (
+                <option key={m.id} value={m.id}>{m.label}</option>
+              ))}
+            </select>
+          </div>
           <p style={styles.hint}>
             Both models run on Groq's Whisper API. Transcription is pinned to English by the app, so either
             works for English-only interviews. (Groq's older distil-whisper-large-v3-en has been decommissioned.)

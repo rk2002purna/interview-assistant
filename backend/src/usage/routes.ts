@@ -69,8 +69,8 @@ interface RoutingConfig {
  * classify primary vs fallback usage when no config row is present.
  */
 const DEFAULT_MODEL_ROUTING: RoutingConfig = {
-  textPrimary: { provider: 'gemini', model: 'gemini-flash-latest' },
-  textFallback: { provider: 'groq', model: 'llama-3.3-70b-versatile' },
+  textPrimary: { provider: 'groq', model: 'openai/gpt-oss-120b' },
+  textFallback: { provider: 'groq', model: 'openai/gpt-oss-20b' },
   visionPrimary: { provider: 'gemini', model: 'gemini-flash-latest' },
   visionFallback: { provider: 'groq', model: 'meta-llama/llama-4-scout-17b-16e-instruct' },
 };

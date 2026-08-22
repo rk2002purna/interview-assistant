@@ -29,6 +29,7 @@ import { buildVisionRouter } from './ai/vision-routes.js';
 import type { VerificationEmailSender } from './auth/register-routes.js';
 import type { PasswordResetEmailSender } from './auth/password-reset-routes.js';
 import { requestLogger } from './http/request-logger.js';
+import { Logger, type LogLevel } from './log/logger.js';
 
 // Re-export scheduled task handlers for platform invocation.
 export { runSessionExpirySweep } from './sessions/expiry-sweep.js';
@@ -77,12 +78,21 @@ export interface BuildAppDeps {
 export function buildApp(deps: BuildAppDeps = {}): Hono {
   const app = new Hono();
 
+  // Shared structured logger (stdout → CloudWatch agent). One instance is
+  // threaded into the request logger and the AI routes so upstream/provider
+  // failures are captured with the same redaction and sink.
+  const logLevel: LogLevel = ((): LogLevel => {
+    const raw = process.env['LOG_LEVEL'];
+    return raw === 'debug' || raw === 'info' || raw === 'warn' || raw === 'error' ? raw : 'info';
+  })();
+  const logger = new Logger({ minLevel: logLevel });
+
   // Request logging — outermost middleware so every API call (matched
   // routes, 404s, and handlers that throw) is recorded exactly once with a
   // correlation id. Emits structured JSON to stdout; on EC2 the CloudWatch
   // agent ships these lines to CloudWatch Logs. Never logs bodies, headers,
   // query strings, or secrets. See src/http/request-logger.ts.
-  app.use('*', requestLogger());
+  app.use('*', requestLogger({ logger }));
 
   // CORS — allow requests from web app and admin dashboard
   app.use('*', cors({
@@ -260,6 +270,7 @@ export function buildApp(deps: BuildAppDeps = {}): Hono {
     // AI Text route (R7.1, R7.4, R7.5, R7.8, R9.1: POST /ai/text).
     const aiTextRouter = buildAiTextRouter({
       pool: deps.pool,
+      logger,
       ...(deps.now ? { now: deps.now } : {}),
     });
     app.route('/', aiTextRouter);
@@ -267,6 +278,7 @@ export function buildApp(deps: BuildAppDeps = {}): Hono {
     // AI Vision route (R7.1, R7.4, R7.5: POST /ai/vision).
     const visionRouter = buildVisionRouter({
       pool: deps.pool,
+      logger,
       ...(deps.now ? { now: deps.now } : {}),
     });
     app.route('/', visionRouter);
@@ -274,6 +286,7 @@ export function buildApp(deps: BuildAppDeps = {}): Hono {
     // AI Audio route (R7.1, R7.4, R7.5: POST /ai/audio).
     const audioRouter = buildAudioRouter({
       pool: deps.pool,
+      logger,
       ...(deps.now ? { now: deps.now } : {}),
       ...(deps.transcribe ? { transcribe: deps.transcribe } : {}),
     });

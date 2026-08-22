@@ -35,8 +35,8 @@ const MODEL_CATALOG: Record<string, { text: { id: string; label: string }[]; vis
   },
   groq: {
     text: [
-      { id: 'llama-3.3-70b-versatile', label: '⚡ llama-3.3-70b-versatile (recommended)' },
-      { id: 'llama-3.1-8b-instant', label: '🪶 llama-3.1-8b-instant — Fastest' },
+      { id: 'openai/gpt-oss-120b', label: '⚡ openai/gpt-oss-120b — Accurate & fast (recommended)' },
+      { id: 'openai/gpt-oss-20b', label: '🪶 openai/gpt-oss-20b — Fastest' },
       { id: 'meta-llama/llama-4-scout-17b-16e-instruct', label: 'llama-4-scout-17b' },
       { id: 'meta-llama/llama-4-maverick-17b-128e-instruct', label: 'llama-4-maverick-17b' },
     ],
@@ -78,8 +78,8 @@ function getModels(provider: string, capability: 'text' | 'vision') {
 
 export default function ModelRoutingPage() {
   const [config, setConfig] = useState<RoutingConfig>({
-    textPrimary: { provider: 'gemini', model: 'gemini-flash-latest' },
-    textFallback: { provider: 'groq', model: 'llama-3.3-70b-versatile' },
+    textPrimary: { provider: 'groq', model: 'openai/gpt-oss-120b' },
+    textFallback: { provider: 'groq', model: 'openai/gpt-oss-20b' },
     visionPrimary: { provider: 'gemini', model: 'gemini-flash-latest' },
     visionFallback: { provider: 'groq', model: 'meta-llama/llama-4-scout-17b-16e-instruct' },
   });

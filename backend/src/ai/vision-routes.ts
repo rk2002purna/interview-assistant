@@ -1,17 +1,10 @@
 /**
  * AI Vision proxy route — `POST /ai/vision` (SSE streaming).
  *
- * Implements the AI_Proxy vision completion endpoint per the design:
- *   - Validates body (≤ 10 images, each ≤ 10 MB, text ≤ 32k chars)
- *   - Authenticates via JWT and verifies an active Interview Session
- *   - Resolves provider by `model` slug
- *   - Forwards request to upstream provider with server-held key
- *   - Streams response chunks downstream as Server-Sent Events
- *   - 60-second AbortController timeout
- *   - On error/timeout returns 502 `upstream_provider_error`
- *   - On terminal status, writes a `usage` row (success or failed)
- *
- * Same flow as `POST /ai/text` with additional image validation.
+ * Like `/ai/text`, the provider/model is chosen **server-side** from the
+ * admin routing config (`app_config.model_routing`) rather than trusting the
+ * client's requested model, and it falls back from the primary to the
+ * secondary vision model before any bytes are streamed.
  *
  * Requirements: 7.1, 7.4, 7.5.
  */
@@ -24,10 +17,15 @@ import { verifyAccess, JwtError } from '../auth/jwt.js';
 import { resolveProviderKey, ProviderKeyUnavailableError } from './keys.js';
 import {
   lookupIdempotencyCache,
-  insertIdempotencyCache,
   computeRequestHash,
   IdempotencyKeyConflictError,
 } from './idempotency.js';
+import {
+  PROVIDER_ENDPOINTS,
+  readRoutingConfig,
+  visionCandidates,
+  routingSlug,
+} from './model-routing.js';
 import type { Logger } from '../log/logger.js';
 
 // ---------------------------------------------------------------------------
@@ -60,41 +58,6 @@ const MAX_INPUT_CHARS = 32_000;
 const UPSTREAM_TIMEOUT_MS = 60_000;
 
 // ---------------------------------------------------------------------------
-// Model → Provider mapping
-// ---------------------------------------------------------------------------
-
-/** Model-to-provider mapping. The model slug prefix determines the provider. */
-const MODEL_PROVIDER_MAP: Record<string, string> = {
-  gemini: 'gemini',
-  groq: 'groq',
-  deepseek: 'deepseek',
-  cerebras: 'cerebras',
-};
-
-/**
- * Resolve a model slug to its provider name.
- * Convention: the model slug is prefixed with the provider name
- * (e.g. "gemini/gemini-1.5-flash", "groq/llava-v1.5-7b").
- * If no slash is present, the entire slug is treated as the provider name.
- */
-function resolveProvider(model: string): string | null {
-  const slashIdx = model.indexOf('/');
-  const prefix = slashIdx >= 0 ? model.slice(0, slashIdx) : model;
-  const normalized = prefix.toLowerCase().trim();
-  return MODEL_PROVIDER_MAP[normalized] ?? null;
-}
-
-/**
- * Upstream provider endpoint URLs.
- */
-const PROVIDER_ENDPOINTS: Record<string, string> = {
-  groq: 'https://api.groq.com/openai/v1/chat/completions',
-  deepseek: 'https://api.deepseek.com/v1/chat/completions',
-  cerebras: 'https://api.cerebras.ai/v1/chat/completions',
-  gemini: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
-};
-
-// ---------------------------------------------------------------------------
 // SQL
 // ---------------------------------------------------------------------------
 
@@ -118,15 +81,13 @@ const INSERT_USAGE_SQL = `
 // ---------------------------------------------------------------------------
 
 /**
- * Estimate the byte size of a base64 data URL image.
- * For data URLs: strip the prefix, compute base64 decoded size.
- * For regular URLs: returns null (cannot determine without fetching).
+ * Estimate the byte size of a base64 data URL image. Returns null for
+ * non-data URLs (cannot determine without fetching).
  */
 function estimateImageBytes(url: string): number | null {
   const dataUrlMatch = /^data:[^;]+;base64,(.+)$/i.exec(url);
   if (dataUrlMatch) {
     const base64Data = dataUrlMatch[1]!;
-    // Base64 encodes 3 bytes per 4 chars (minus padding)
     const padding = (base64Data.match(/=+$/) ?? [''])[0].length;
     return Math.floor((base64Data.length * 3) / 4) - padding;
   }
@@ -140,10 +101,7 @@ interface ContentPart {
   image_url?: { url?: string };
 }
 
-/**
- * Extract all image URLs from the messages array.
- * Messages may have `content` as a string or as an array of content parts.
- */
+/** Extract all image URLs from the messages array. */
 function extractImageUrls(messages: unknown[]): string[] {
   const urls: string[] = [];
   for (const msg of messages) {
@@ -162,10 +120,7 @@ function extractImageUrls(messages: unknown[]): string[] {
   return urls;
 }
 
-/**
- * Compute total text character count across all messages.
- * Handles both string content and array-of-parts content.
- */
+/** Compute total text character count across all messages. */
 function countTextChars(messages: unknown[], systemPrompt?: string): number {
   let total = 0;
   if (typeof systemPrompt === 'string') {
@@ -272,15 +227,7 @@ export function buildVisionRouter(deps: AiVisionRouteDeps): Hono {
     }
 
     const messages = body.messages;
-    const model = body.model;
     const systemPrompt = body.systemPrompt ?? body.system_prompt;
-
-    if (!model || typeof model !== 'string') {
-      return c.json(
-        { error: { code: 'invalid_request', message: 'model field is required and must be a string' } },
-        400,
-      );
-    }
 
     if (!messages || !Array.isArray(messages)) {
       return c.json(
@@ -335,26 +282,20 @@ export function buildVisionRouter(deps: AiVisionRouteDeps): Hono {
       }
     }
 
-    // --- 4. Resolve provider (design: model slug → provider) ---
-    const provider = resolveProvider(model);
-    if (!provider) {
+    // --- 4. Resolve provider/model server-side from admin routing config ---
+    const routing = await readRoutingConfig(deps.pool);
+    const candidates = visionCandidates(routing);
+    if (candidates.length === 0) {
       return c.json(
-        {
-          error: {
-            code: 'invalid_request',
-            message: `unsupported model: ${model}`,
-          },
-        },
-        400,
+        { error: { code: 'upstream_provider_error', message: 'no vision model is configured' } },
+        502,
       );
     }
 
     // --- 5. Idempotency check (Requirements 7.6, 7.7) ---
     const idempotencyKey = c.req.header('Idempotency-Key') ?? null;
-    let requestHash: Buffer | null = null;
-
     if (idempotencyKey) {
-      requestHash = computeRequestHash({ messages, model, systemPrompt: systemPrompt ?? null });
+      const requestHash = computeRequestHash({ messages, systemPrompt: systemPrompt ?? null });
       try {
         const cached = await lookupIdempotencyCache(
           deps.pool,
@@ -376,33 +317,7 @@ export function buildVisionRouter(deps: AiVisionRouteDeps): Hono {
       }
     }
 
-    // --- 6. Resolve provider key (Requirement 4.5) ---
-    let providerKey: string;
-    try {
-      providerKey = await resolveProviderKey(deps.pool, provider, {
-        ...(deps.logger ? { logger: deps.logger } : {}),
-      });
-    } catch (err) {
-      if (err instanceof ProviderKeyUnavailableError) {
-        return c.json(
-          { error: { code: 'provider_key_unavailable', message: 'AI provider is currently unavailable' } },
-          503,
-        );
-      }
-      throw err;
-    }
-
-    // --- 7. Build upstream request ---
-    const endpoint = PROVIDER_ENDPOINTS[provider];
-    if (!endpoint) {
-      return c.json(
-        { error: { code: 'upstream_provider_error', message: 'provider endpoint not configured' } },
-        502,
-      );
-    }
-
-    // Build the messages array for the upstream provider.
-    // Vision messages include content parts with image_url entries.
+    // Build upstream messages once (preserve content parts: text + image_url).
     const upstreamMessages: unknown[] = [];
     if (typeof systemPrompt === 'string' && systemPrompt.length > 0) {
       upstreamMessages.push({ role: 'system', content: systemPrompt });
@@ -412,228 +327,221 @@ export function buildVisionRouter(deps: AiVisionRouteDeps): Hono {
         const m = msg as Record<string, unknown>;
         upstreamMessages.push({
           role: String(m.role ?? 'user'),
-          content: m.content, // Preserve content parts (text + image_url) as-is
+          content: m.content,
         });
       }
     }
 
-    // Extract the actual model name (after the provider prefix)
-    const slashIdx = model.indexOf('/');
-    const modelId = slashIdx >= 0 ? model.slice(slashIdx + 1) : model;
+    // --- 6. Try each candidate (primary, then fallback) ---
+    let lastErrorCode: 'provider_key_unavailable' | 'upstream_provider_error' =
+      'upstream_provider_error';
 
-    const upstreamBody = JSON.stringify({
-      model: modelId,
-      messages: upstreamMessages,
-      stream: true,
-    });
+    for (const candidate of candidates) {
+      const modelSlug = routingSlug(candidate);
+      const endpoint = PROVIDER_ENDPOINTS[candidate.provider]!;
 
-    // --- 8. Forward to upstream with 60s timeout (Requirement 7.5) ---
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
-    const startTime = Date.now();
-
-    let upstreamResponse: Response;
-    let upstreamStatus: number | null = null;
-
-    try {
-      upstreamResponse = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${providerKey}`,
-        },
-        body: upstreamBody,
-        signal: controller.signal,
-      });
-      upstreamStatus = upstreamResponse.status;
-    } catch (err) {
-      clearTimeout(timeout);
-      const latencyMs = Date.now() - startTime;
-
-      // Write usage row with failed status
-      await writeUsageRow(deps.pool, {
-        userId,
-        sessionId,
-        now: getNow(),
-        modelId: model,
-        status: 'failed',
-        upstreamHttpStatus: null,
-        idempotencyKey,
-        inputTokens: null,
-        inputImageCount: imageUrls.length,
-        outputTokens: null,
-      });
-
-      deps.logger?.error('ai_vision_upstream_error', {
-        user_id: userId,
-        session_id: sessionId,
-        operation_type: 'vision',
-        model_id: model,
-        status: 'failed',
-        latency_ms: latencyMs,
-        error_type: (err as Error).name === 'AbortError' ? 'timeout' : 'network_error',
-      });
-
-      return c.json(
-        { error: { code: 'upstream_provider_error', message: 'upstream provider request failed' } },
-        502,
-      );
-    }
-
-    // If upstream returned a non-2xx status, treat as error
-    if (!upstreamResponse.ok) {
-      clearTimeout(timeout);
-      const latencyMs = Date.now() - startTime;
-
-      await writeUsageRow(deps.pool, {
-        userId,
-        sessionId,
-        now: getNow(),
-        modelId: model,
-        status: 'failed',
-        upstreamHttpStatus: upstreamStatus,
-        idempotencyKey,
-        inputTokens: null,
-        inputImageCount: imageUrls.length,
-        outputTokens: null,
-      });
-
-      deps.logger?.error('ai_vision_upstream_error', {
-        user_id: userId,
-        session_id: sessionId,
-        operation_type: 'vision',
-        model_id: model,
-        status: 'failed',
-        latency_ms: latencyMs,
-        upstream_http_status: upstreamStatus,
-      });
-
-      return c.json(
-        { error: { code: 'upstream_provider_error', message: 'upstream provider returned an error' } },
-        502,
-      );
-    }
-
-    // --- 9. Stream SSE response downstream (Requirement 7.8) ---
-    const responseBody = upstreamResponse.body;
-    if (!responseBody) {
-      clearTimeout(timeout);
-
-      await writeUsageRow(deps.pool, {
-        userId,
-        sessionId,
-        now: getNow(),
-        modelId: model,
-        status: 'failed',
-        upstreamHttpStatus: upstreamStatus,
-        idempotencyKey,
-        inputTokens: null,
-        inputImageCount: imageUrls.length,
-        outputTokens: null,
-      });
-
-      return c.json(
-        { error: { code: 'upstream_provider_error', message: 'upstream provider returned no body' } },
-        502,
-      );
-    }
-
-    // Stream the response using a ReadableStream that reads from upstream
-    const sseStream = new ReadableStream({
-      async start(streamController) {
-        const reader = responseBody.getReader();
-        const decoder = new TextDecoder();
-        let inputTokens: number | null = null;
-        let outputTokens: number | null = null;
-        let streamFailed = false;
-
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            const chunk = decoder.decode(value, { stream: true });
-            streamController.enqueue(new TextEncoder().encode(chunk));
-
-            // Try to extract token usage from the final chunk
-            if (chunk.includes('"usage"')) {
-              try {
-                const lines = chunk.split('\n');
-                for (const line of lines) {
-                  if (line.startsWith('data: ') && line !== 'data: [DONE]') {
-                    const jsonStr = line.slice(6);
-                    const parsed = JSON.parse(jsonStr) as Record<string, unknown>;
-                    if (parsed.usage && typeof parsed.usage === 'object') {
-                      const usage = parsed.usage as Record<string, unknown>;
-                      if (typeof usage.prompt_tokens === 'number') {
-                        inputTokens = usage.prompt_tokens;
-                      }
-                      if (typeof usage.completion_tokens === 'number') {
-                        outputTokens = usage.completion_tokens;
-                      }
-                    }
-                  }
-                }
-              } catch {
-                // Ignore parse errors in usage extraction
-              }
-            }
-          }
-        } catch (err) {
-          streamFailed = true;
-          deps.logger?.error('ai_vision_stream_error', {
-            user_id: userId,
-            session_id: sessionId,
-            operation_type: 'vision',
-            model_id: model,
-            error_type: (err as Error).name === 'AbortError' ? 'timeout' : 'stream_error',
-          });
-        } finally {
-          clearTimeout(timeout);
-          streamController.close();
-
-          const latencyMs = Date.now() - startTime;
-          const finalStatus = streamFailed ? 'failed' : 'success';
-
-          // Write usage row on terminal status (Requirement 9.1)
+      let providerKey: string;
+      try {
+        providerKey = await resolveProviderKey(deps.pool, candidate.provider, {
+          ...(deps.logger ? { logger: deps.logger } : {}),
+        });
+      } catch (err) {
+        if (err instanceof ProviderKeyUnavailableError) {
+          lastErrorCode = 'provider_key_unavailable';
           await writeUsageRow(deps.pool, {
             userId,
             sessionId,
             now: getNow(),
-            modelId: model,
-            status: finalStatus,
-            upstreamHttpStatus: upstreamStatus,
+            modelId: modelSlug,
+            status: 'failed',
+            upstreamHttpStatus: null,
             idempotencyKey,
-            inputTokens,
+            inputTokens: null,
             inputImageCount: imageUrls.length,
-            outputTokens,
+            outputTokens: null,
           });
-
-          // Emit structured log record
-          deps.logger?.info('ai_operation_complete', {
+          deps.logger?.warn('ai_vision_provider_key_unavailable', {
             user_id: userId,
             session_id: sessionId,
-            operation_type: 'vision',
-            model_id: model,
-            status: finalStatus,
-            latency_ms: latencyMs,
-            upstream_http_status: upstreamStatus,
-            idempotency_key: idempotencyKey,
-            image_count: imageUrls.length,
+            provider: candidate.provider,
+            model_id: modelSlug,
           });
+          continue;
         }
-      },
-    });
+        throw err;
+      }
 
-    return new Response(sseStream, {
-      status: 200,
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-        'X-Accel-Buffering': 'no',
-      },
-    });
+      const upstreamBody = JSON.stringify({
+        model: candidate.model,
+        messages: upstreamMessages,
+        stream: true,
+      });
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+      const startTime = Date.now();
+
+      let upstreamResponse: Response;
+      try {
+        upstreamResponse = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${providerKey}`,
+          },
+          body: upstreamBody,
+          signal: controller.signal,
+        });
+      } catch (err) {
+        clearTimeout(timeout);
+        lastErrorCode = 'upstream_provider_error';
+        await writeUsageRow(deps.pool, {
+          userId,
+          sessionId,
+          now: getNow(),
+          modelId: modelSlug,
+          status: 'failed',
+          upstreamHttpStatus: null,
+          idempotencyKey,
+          inputTokens: null,
+          inputImageCount: imageUrls.length,
+          outputTokens: null,
+        });
+        deps.logger?.error('ai_vision_upstream_error', {
+          user_id: userId,
+          session_id: sessionId,
+          operation_type: 'vision',
+          model_id: modelSlug,
+          status: 'failed',
+          latency_ms: Date.now() - startTime,
+          error_type: (err as Error).name === 'AbortError' ? 'timeout' : 'network_error',
+        });
+        continue;
+      }
+
+      if (!upstreamResponse.ok || !upstreamResponse.body) {
+        clearTimeout(timeout);
+        lastErrorCode = 'upstream_provider_error';
+        await writeUsageRow(deps.pool, {
+          userId,
+          sessionId,
+          now: getNow(),
+          modelId: modelSlug,
+          status: 'failed',
+          upstreamHttpStatus: upstreamResponse.status,
+          idempotencyKey,
+          inputTokens: null,
+          inputImageCount: imageUrls.length,
+          outputTokens: null,
+        });
+        deps.logger?.error('ai_vision_upstream_error', {
+          user_id: userId,
+          session_id: sessionId,
+          operation_type: 'vision',
+          model_id: modelSlug,
+          status: 'failed',
+          latency_ms: Date.now() - startTime,
+          upstream_http_status: upstreamResponse.status,
+        });
+        continue;
+      }
+
+      // --- Success: stream this candidate's SSE response downstream ---
+      const upstreamStatus = upstreamResponse.status;
+      const upstreamBodyStream = upstreamResponse.body;
+      const sseStream = new ReadableStream({
+        async start(streamController) {
+          const reader = upstreamBodyStream.getReader();
+          const decoder = new TextDecoder();
+          let inputTokens: number | null = null;
+          let outputTokens: number | null = null;
+          let streamFailed = false;
+
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+
+              const chunk = decoder.decode(value, { stream: true });
+              streamController.enqueue(new TextEncoder().encode(chunk));
+
+              if (chunk.includes('"usage"')) {
+                try {
+                  const lines = chunk.split('\n');
+                  for (const line of lines) {
+                    if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+                      const parsed = JSON.parse(line.slice(6)) as Record<string, unknown>;
+                      if (parsed.usage && typeof parsed.usage === 'object') {
+                        const usage = parsed.usage as Record<string, unknown>;
+                        if (typeof usage.prompt_tokens === 'number') inputTokens = usage.prompt_tokens;
+                        if (typeof usage.completion_tokens === 'number') outputTokens = usage.completion_tokens;
+                      }
+                    }
+                  }
+                } catch {
+                  // Ignore parse errors in usage extraction.
+                }
+              }
+            }
+          } catch (err) {
+            streamFailed = true;
+            deps.logger?.error('ai_vision_stream_error', {
+              user_id: userId,
+              session_id: sessionId,
+              operation_type: 'vision',
+              model_id: modelSlug,
+              error_type: (err as Error).name === 'AbortError' ? 'timeout' : 'stream_error',
+            });
+          } finally {
+            clearTimeout(timeout);
+            streamController.close();
+
+            await writeUsageRow(deps.pool, {
+              userId,
+              sessionId,
+              now: getNow(),
+              modelId: modelSlug,
+              status: streamFailed ? 'failed' : 'success',
+              upstreamHttpStatus: upstreamStatus,
+              idempotencyKey,
+              inputTokens,
+              inputImageCount: imageUrls.length,
+              outputTokens,
+            });
+
+            deps.logger?.info('ai_operation_complete', {
+              user_id: userId,
+              session_id: sessionId,
+              operation_type: 'vision',
+              model_id: modelSlug,
+              status: streamFailed ? 'failed' : 'success',
+              latency_ms: Date.now() - startTime,
+              upstream_http_status: upstreamStatus,
+              idempotency_key: idempotencyKey,
+              image_count: imageUrls.length,
+            });
+          }
+        },
+      });
+
+      return new Response(sseStream, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+          'X-Accel-Buffering': 'no',
+        },
+      });
+    }
+
+    // --- 7. All candidates failed ---
+    const status = lastErrorCode === 'provider_key_unavailable' ? 503 : 502;
+    const message =
+      lastErrorCode === 'provider_key_unavailable'
+        ? 'AI provider is currently unavailable'
+        : 'all configured AI providers failed';
+    return c.json({ error: { code: lastErrorCode, message } }, status);
   });
 
   return router;
@@ -657,12 +565,9 @@ interface WriteUsageInput {
 }
 
 /**
- * Write a usage row to the `usage` table. Records the terminal status
- * of an AI vision operation (success or failed) per Requirement 9.1.
- *
- * Errors are swallowed: the usage row is observability data and must
- * not cause the request to fail if the insert encounters a transient
- * DB issue.
+ * Write a usage row to the `usage` table. Records the terminal status of an
+ * AI vision operation (success or failed) per Requirement 9.1. Errors are
+ * swallowed: usage rows are best-effort observability.
  */
 async function writeUsageRow(pool: Pool, input: WriteUsageInput): Promise<void> {
   try {
