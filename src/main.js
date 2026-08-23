@@ -228,6 +228,13 @@ app.whenReady().then(() => {
   // Remove the default menu bar (File, Edit, View, etc.) from all windows
   Menu.setApplicationMenu(null);
 
+  // Restore any persisted session now that the app is ready. This must happen
+  // here rather than at module load: safeStorage (used to decrypt the saved
+  // tokens) is only available after 'ready', and the HTTP client is now wired.
+  // Doing it at module load was why a saved 30-day session was lost on every
+  // restart, forcing a browser login each launch.
+  authController.initialize();
+
   createMainWindow();
 
   // Register custom protocol for browser OAuth callback.
@@ -770,10 +777,11 @@ ipcMain.handle('transcribe-audio', async (event, { audioData, mimeType }) => {
 // Wire auth controller into the backend client for 401 refresh handling
 setAuthController(authController);
 
-// Initialize auth controller (loads persisted tokens)
-authController.initialize();
-
-// Wire the HTTP client into auth controller for refresh/logout calls
+// Wire the HTTP client into auth controller for refresh/logout calls.
+// NOTE: this must be wired BEFORE authController.initialize() runs (now done
+// in app.whenReady). Otherwise, on a next-day launch where the access token
+// has already expired, initialize() triggers an immediate refresh with no HTTP
+// client, which throws and clears the saved session — forcing a fresh login.
 authController.setHttpClient(async (path, options) => {
   const result = await backendRequest({
     method: options.method || 'POST',

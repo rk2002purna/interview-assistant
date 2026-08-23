@@ -32,8 +32,17 @@
     #start-session-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
     #session-cta .cta-subtitle { font-size: 10px; color: #a0aec0; }
     #session-cta .role-label { display: block; font-size: 10px; color: #a0aec0; margin-bottom: 4px; text-align: left; }
-    #interview-role { width: 100%; margin-bottom: 8px; padding: 6px 8px; font-size: 12px; background: #1a2233; color: #e2e8f0; border: 1px solid rgba(99,179,237,0.25); border-radius: 6px; outline: none; }
-    #interview-role:focus { border-color: rgba(99,179,237,0.55); }
+    /* Custom in-window dropdown (replaces native <select> so its option list
+       is covered by window content protection and never leaks to screen share). */
+    #interview-role { position: relative; width: 100%; margin-bottom: 8px; text-align: left; }
+    #interview-role .cs-trigger { width: 100%; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 8px; font-size: 12px; background: #1a2233; color: #e2e8f0; border: 1px solid rgba(99,179,237,0.25); border-radius: 6px; outline: none; cursor: pointer; }
+    #interview-role .cs-trigger:hover, #interview-role.open .cs-trigger, #interview-role .cs-trigger:focus { border-color: rgba(99,179,237,0.55); }
+    #interview-role .cs-arrow { font-size: 10px; color: #a0aec0; }
+    #interview-role .cs-options { list-style: none; margin: 4px 0 0; padding: 4px; position: absolute; left: 0; right: 0; top: 100%; z-index: 1000; max-height: 220px; overflow-y: auto; background: #1a2233; border: 1px solid rgba(99,179,237,0.35); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.45); display: none; }
+    #interview-role.open .cs-options { display: block; }
+    #interview-role .cs-options li { padding: 6px 8px; font-size: 12px; color: #e2e8f0; border-radius: 4px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #interview-role .cs-options li:hover { background: rgba(99,179,237,0.18); }
+    #interview-role .cs-options li.selected { background: rgba(99,179,237,0.28); }
     /* Pack cards */
     #packs-container { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; padding: 0 4px; }
     #packs-container.hidden { display: none; }
@@ -224,19 +233,25 @@
   </div>
   <!-- Session CTA: visible when no session is active -->
   <div id="session-cta" class="hidden">
-    <label for="interview-role" class="role-label">Interview role / domain</label>
-    <select id="interview-role" onchange="setInterviewRole(this.value)">
-      <option value="">General</option>
-      <option value="Software Engineering / Coding">Software Engineering</option>
-      <option value="Data Science / Analytics / ML">Data / Analytics / ML</option>
-      <option value="Data Engineering / DevOps / Cloud">Data Eng / DevOps / Cloud</option>
-      <option value="Finance / Accounting / Investment">Finance / Accounting</option>
-      <option value="Product Management">Product Management</option>
-      <option value="Marketing / Sales">Marketing / Sales</option>
-      <option value="Consulting / Business Analyst">Consulting / Business</option>
-      <option value="Design / UX">Design / UX</option>
-      <option value="Other">Other</option>
-    </select>
+    <label class="role-label">Interview role / domain</label>
+    <div id="interview-role" class="custom-select">
+      <div class="cs-trigger" id="interview-role-trigger" tabindex="0" role="button" aria-haspopup="listbox" aria-expanded="false">
+        <span id="interview-role-label">General</span>
+        <span class="cs-arrow">&#9662;</span>
+      </div>
+      <ul class="cs-options" id="interview-role-options" role="listbox">
+        <li role="option" data-value="">General</li>
+        <li role="option" data-value="Software Engineering / Coding">Software Engineering</li>
+        <li role="option" data-value="Data Science / Analytics / ML">Data / Analytics / ML</li>
+        <li role="option" data-value="Data Engineering / DevOps / Cloud">Data Eng / DevOps / Cloud</li>
+        <li role="option" data-value="Finance / Accounting / Investment">Finance / Accounting</li>
+        <li role="option" data-value="Product Management">Product Management</li>
+        <li role="option" data-value="Marketing / Sales">Marketing / Sales</li>
+        <li role="option" data-value="Consulting / Business Analyst">Consulting / Business</li>
+        <li role="option" data-value="Design / UX">Design / UX</li>
+        <li role="option" data-value="Other">Other</li>
+      </ul>
+    </div>
     <button id="start-session-btn" onclick="startSession()">&#9654; Start Interview Session</button>
     <div class="cta-subtitle" id="cta-subtitle">Pay as you go — ₹5/min from your wallet. ₹50 free on signup.</div>
     <div id="packs-container" class="hidden"></div>
@@ -387,8 +402,8 @@ async function reloadConfig() {
   resumeContext = config.resumeContext || '';
   jobContext = config.jobContext || '';
   interviewRole = config.interviewRole || '';
-  var roleSel = document.getElementById('interview-role');
-  if (roleSel) roleSel.value = interviewRole;
+  initInterviewRoleDropdown();
+  setInterviewRoleSelection(interviewRole);
   if (config.routing) {
     if (config.routing.textPrimary) routing.textPrimary = config.routing.textPrimary;
     if (config.routing.textFallback) routing.textFallback = config.routing.textFallback;
@@ -760,6 +775,63 @@ function buildSystemPrompt(basePrompt) {
     contextBlock += '\n\nUse this context to tailor your answers — frame examples around the user\'s experience and align responses with the target role when relevant.';
   }
   return basePrompt + contextBlock;
+}
+
+// Custom dropdown for the interview role. A native <select> renders its
+// option list as a separate OS surface that window content protection cannot
+// hide, so it leaked into screen shares. This DOM-based dropdown renders
+// inside the protected window instead.
+var interviewRoleDropdownInit = false;
+function initInterviewRoleDropdown() {
+  if (interviewRoleDropdownInit) return;
+  var wrap = document.getElementById('interview-role');
+  var trigger = document.getElementById('interview-role-trigger');
+  var options = document.getElementById('interview-role-options');
+  if (!wrap || !trigger || !options) return;
+  interviewRoleDropdownInit = true;
+
+  function toggle(open) {
+    var willOpen = open === undefined ? !wrap.classList.contains('open') : open;
+    wrap.classList.toggle('open', willOpen);
+    trigger.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+  }
+
+  trigger.addEventListener('click', function (e) { e.stopPropagation(); toggle(); });
+  trigger.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+    else if (e.key === 'Escape') { toggle(false); }
+  });
+  options.addEventListener('click', function (e) {
+    var li = e.target.closest('li[role="option"]');
+    if (!li) return;
+    var value = li.getAttribute('data-value') || '';
+    setInterviewRoleSelection(value);
+    toggle(false);
+    setInterviewRole(value);
+  });
+  document.addEventListener('click', function (e) {
+    if (!wrap.contains(e.target)) toggle(false);
+  });
+}
+
+// Reflect the given role value in the custom dropdown (label + highlight).
+function setInterviewRoleSelection(value) {
+  var options = document.getElementById('interview-role-options');
+  var labelEl = document.getElementById('interview-role-label');
+  if (!options || !labelEl) return;
+  var normalized = value || '';
+  var matchedLabel = 'General';
+  var items = options.querySelectorAll('li[role="option"]');
+  for (var i = 0; i < items.length; i++) {
+    var li = items[i];
+    if ((li.getAttribute('data-value') || '') === normalized) {
+      li.classList.add('selected');
+      matchedLabel = li.textContent;
+    } else {
+      li.classList.remove('selected');
+    }
+  }
+  labelEl.textContent = matchedLabel;
 }
 
 // Persist the chosen interview role/domain so answers are tailored to it.

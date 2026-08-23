@@ -241,14 +241,20 @@ async function backendRequest(options) {
   // First attempt
   let response = await doFetch(url, method, headers, serializedBody, signal);
 
-  // Handle 401 → refresh → retry once
-  if (response.status === 401 && _authController) {
-    const newToken = await _authController.refreshAccessToken();
-    if (newToken) {
-      // Update the Authorization header with the fresh token
-      headers['Authorization'] = `Bearer ${newToken}`;
-      // Retry the request once
-      response = await doFetch(url, method, headers, serializedBody, signal);
+  // Handle 401 → refresh → retry once.
+  // The auth controller exposes refresh() (returns boolean) + getAccessToken();
+  // there is no refreshAccessToken() method, so the previous call silently
+  // threw and left expired sessions unrecoverable. We also skip this for
+  // /auth/* endpoints: the refresh call itself flows through backendRequest,
+  // and retrying it here would recurse into refresh() and deadlock.
+  if (response.status === 401 && _authController && !path.startsWith('/auth/')) {
+    const refreshed = await _authController.refresh();
+    if (refreshed) {
+      const newToken = _authController.getAccessToken();
+      if (newToken) {
+        headers['Authorization'] = `Bearer ${newToken}`;
+        response = await doFetch(url, method, headers, serializedBody, signal);
+      }
     }
   }
 

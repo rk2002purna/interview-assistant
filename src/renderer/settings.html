@@ -240,19 +240,6 @@
     <textarea id="job-context" placeholder="e.g. Senior Frontend Engineer at a fintech startup, React, TypeScript, Node.js..."></textarea>
   </div>
 
-  <!-- Display Mode Section -->
-  <div class="section">
-    <h2>🎥 Display Mode</h2>
-    <label>How should answers be displayed?</label>
-    <select id="display-mode">
-      <option value="manual">Manual — Normal window (drag anywhere)</option>
-      <option value="on-camera">On Camera — Stick below webcam (top-center, auto-resize)</option>
-    </select>
-    <div class="hint">
-      "On Camera" mode pins the answer just below your webcam so you can read it while looking at the camera. The window auto-resizes based on answer length.
-    </div>
-  </div>
-
   <div class="section">
     <h2>🛡️ Privacy Info</h2>
     <div class="privacy-info">
@@ -505,9 +492,6 @@
       // Context fields
       if (config && config.resumeContext) document.getElementById('resume-context').value = config.resumeContext;
       if (config && config.jobContext) document.getElementById('job-context').value = config.jobContext;
-
-      // Display mode
-      if (config && config.displayMode) document.getElementById('display-mode').value = config.displayMode;
     } catch (err) {
       console.error('Failed to load config:', err);
     }
@@ -520,8 +504,7 @@
   function save() {
     const config = {
       resumeContext: document.getElementById('resume-context').value.trim(),
-      jobContext: document.getElementById('job-context').value.trim(),
-      displayMode: document.getElementById('display-mode').value
+      jobContext: document.getElementById('job-context').value.trim()
     };
 
     // Preserve existing routing config (managed by admin, not editable here)
