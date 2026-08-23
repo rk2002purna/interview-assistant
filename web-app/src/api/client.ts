@@ -150,12 +150,25 @@ async function refreshAccessToken(): Promise<TokenPair | null> {
     try {
       const resp = await fetch(`${API_BASE_URL}/auth/refresh`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          // Required: the backend binds each refresh token to the client_id
+          // captured at login. Without this header the server sees an empty
+          // client_id, treats it as a mismatch, and revokes the token —
+          // which was forcing a logout ~1h after login.
+          'X-Client-Id': getClientId(),
+        },
         body: JSON.stringify({ refresh_token: tokens.refreshToken }),
       });
       if (!resp.ok) { clearTokens(); return null; }
-      const data = await resp.json() as { access_token: string; refresh_token: string };
-      const newTokens: TokenPair = { accessToken: data.access_token, refreshToken: data.refresh_token };
+      // /auth/refresh returns only a new access token (refresh tokens are not
+      // rotated), so preserve the existing refresh token rather than
+      // overwriting it with undefined.
+      const data = await resp.json() as { access_token: string; refresh_token?: string };
+      const newTokens: TokenPair = {
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token ?? tokens.refreshToken,
+      };
       storeTokens(newTokens);
       return newTokens;
     } catch {
@@ -180,7 +193,11 @@ export async function apiRequest<T = unknown>(
     tokens = await refreshAccessToken();
   }
 
-  const reqHeaders: Record<string, string> = { 'Content-Type': 'application/json', ...headers };
+  const reqHeaders: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-Client-Id': getClientId(),
+    ...headers,
+  };
   if (tokens?.accessToken) {
     reqHeaders['Authorization'] = `Bearer ${tokens.accessToken}`;
   }
