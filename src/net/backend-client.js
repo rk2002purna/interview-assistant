@@ -1,6 +1,6 @@
 'use strict';
 
-const { app } = require('electron');
+const { app, net } = require('electron');
 const { getClientId } = require('../auth/client-id');
 
 /**
@@ -299,7 +299,13 @@ async function doFetch(url, method, headers, body, signal) {
     fetchOptions.body = body;
   }
 
-  return fetch(url, fetchOptions);
+  // Use Electron's net.fetch (Chromium's network stack) instead of Node's
+  // global fetch. Chromium honors the OS proxy and the OS certificate store —
+  // including corporate TLS-inspection root certificates — so the app connects
+  // on managed/company networks. Node's fetch uses its own bundled CA list and
+  // ignores the system proxy, which is why it failed there with "fetch failed"
+  // even though the browser and curl worked.
+  return net.fetch(url, fetchOptions);
 }
 
 /**

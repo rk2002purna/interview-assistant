@@ -709,7 +709,7 @@ async function getConfiguredSttModel() {
   }
   try {
     const { getBaseUrl } = require('./net/backend-client');
-    const response = await fetch(`${getBaseUrl()}/config/stt`);
+    const response = await require('electron').net.fetch(`${getBaseUrl()}/config/stt`);
     if (response.ok) {
       const data = await response.json();
       const model = data && data.stt && data.stt.model;
@@ -747,7 +747,7 @@ ipcMain.handle('transcribe-audio', async (event, { audioData, mimeType }) => {
     };
 
     const { getBaseUrl } = require('./net/backend-client');
-    const response = await fetch(`${getBaseUrl()}/ai/audio`, {
+    const response = await require('electron').net.fetch(`${getBaseUrl()}/ai/audio`, {
       method: 'POST',
       headers,
       body: formData

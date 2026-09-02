@@ -319,6 +319,8 @@ let apiKey = '', deepseekApiKey = '', geminiApiKey = '', cerebrasApiKey = '', di
 //   auth     : Bearer ${process.env.DIGITALOCEAN_API_KEY}
 //   NOTE     : Do NOT send stream_options.include_usage to DigitalOcean
 let resumeContext = '', jobContext = '', interviewRole = '';
+// Answer style: 'short' | 'normal' | 'detailed'. Controls length + humanized phrasing.
+let answerStyle = 'normal';
 // Routing config - holds primary + fallback for text and vision
 let routing = {
   textPrimary: { provider: 'gemini', model: 'gemini-flash-latest' },
@@ -402,6 +404,7 @@ async function reloadConfig() {
   resumeContext = config.resumeContext || '';
   jobContext = config.jobContext || '';
   interviewRole = config.interviewRole || '';
+  answerStyle = config.answerStyle || 'normal';
   initInterviewRoleDropdown();
   setInterviewRoleSelection(interviewRole);
   if (config.routing) {
@@ -774,7 +777,24 @@ function buildSystemPrompt(basePrompt) {
   if (contextBlock) {
     contextBlock += '\n\nUse this context to tailor your answers — frame examples around the user\'s experience and align responses with the target role when relevant.';
   }
-  return basePrompt + contextBlock;
+
+  // Humanized, real-interview answer style + length preference (from Settings).
+  var lengthDirective;
+  if (answerStyle === 'short') {
+    lengthDirective = 'Keep it very brief — 1 to 3 sentences (~40-70 words). Just the core point, the way you\'d answer quickly out loud.';
+  } else if (answerStyle === 'detailed') {
+    lengthDirective = 'Give a thorough spoken answer (~180-260 words) with a brief concrete example or your reasoning, but keep it flowing and natural — not a list.';
+  } else {
+    lengthDirective = 'Keep it concise and conversational — about 4 to 8 sentences (~90-140 words): complete and confident without rambling.';
+  }
+  var styleBlock = '\n\nANSWER STYLE (IMPORTANT):\n' +
+    '- Answer in FIRST PERSON as the candidate speaking live in the interview (use "I", "my experience"). Sound like a real person thinking out loud, not an AI or a textbook.\n' +
+    '- Use a natural, spoken, conversational tone. Do NOT use bullet-point lists, headings, or dictionary-style definitions for spoken answers — talk in plain sentences.\n' +
+    '- Be realistic and human: give a direct take, then back it with a short concrete example from the background/context above when relevant.\n' +
+    '- ' + lengthDirective + '\n' +
+    '- Exception: for coding/technical problems that require code, still give correct working code first, then a brief natural explanation of your approach.';
+
+  return basePrompt + contextBlock + styleBlock;
 }
 
 // Custom dropdown for the interview role. A native <select> renders its
@@ -2331,7 +2351,7 @@ async function askQuestion(question, requestGuard){
     });
 
     var aiPromise=callAIStream(conversationHistory.slice(-6),
-      buildSystemPrompt('You are a real-time interview assistant. Give concise, direct, correct answers appropriate to the candidate\'s target role/domain. For programming questions give working code; for behavioral questions use the STAR method; for domain questions (finance, product, data, design, etc.) give precise domain-specific answers. Keep under 200 words unless the question requires more. No preamble.'),
+      buildSystemPrompt('You are helping the candidate answer questions in a live interview, in real time. Give correct, relevant answers for the candidate\'s target role/domain, spoken in the candidate\'s own voice. For programming questions, give working code plus a brief spoken explanation. Start directly with the answer — no preamble.'),
       function(delta){
         if(!streamRequestIsCurrent())return;
         if(firstChunkTimer){clearTimeout(firstChunkTimer);firstChunkTimer=null;}
